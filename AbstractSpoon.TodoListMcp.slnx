@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TodoListMcp.App/TodoListMcp.App.csproj" />
+    <Project Path="src/TodoListMcp.Core/TodoListMcp.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TodoListMcp.Core.Tests/TodoListMcp.Core.Tests.csproj" />
+  </Folder>
+</Solution>
