@@ -9,6 +9,7 @@
     <RootNamespace>TodoListMcp.App</RootNamespace>
     <AssemblyName>TodoListMcp</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Resources\App.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>

@@ -23,8 +23,8 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
-        // One-shot, scriptable autostart management (used by installers / power users).
-        if (TryHandleAutostartCommand(args)) return;
+        // One-shot, scriptable commands (autostart management, icon generation).
+        if (TryHandleOneShotCommand(args)) return;
 
         // Enforce a single running instance.
         _singleInstance = new Mutex(initiallyOwned: true, SingleInstanceName, out var createdNew);
@@ -68,10 +68,10 @@ internal static class Program
     }
 
     /// <summary>
-    /// Handles <c>--enable-autostart</c> / <c>--disable-autostart</c> and exits. Returns true if a
-    /// command was handled (the caller should then return without starting the tray/server).
+    /// Handles one-shot CLI commands and exits. Returns true if a command was handled (the caller
+    /// should then return without starting the tray/server).
     /// </summary>
-    private static bool TryHandleAutostartCommand(string[] args)
+    private static bool TryHandleOneShotCommand(string[] args)
     {
         if (args.Length == 0) return false;
         switch (args[0].Trim().ToLowerInvariant())
@@ -81,6 +81,11 @@ internal static class Program
                 return true;
             case "--disable-autostart":
                 StartupManager.SetEnabled(false);
+                return true;
+            case "--write-icon":
+                var path = args.Length > 1 ? args[1] : Path.Combine(AppContext.BaseDirectory, "App.ico");
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+                Tray.TrayIconFactory.WriteIco(path);
                 return true;
             default:
                 return false;
