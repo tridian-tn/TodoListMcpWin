@@ -83,8 +83,9 @@ internal static class Program
                 StartupManager.SetEnabled(false);
                 return true;
             case "--write-icon":
-                var path = args.Length > 1 ? args[1] : Path.Combine(AppContext.BaseDirectory, "App.ico");
-                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+                var path = Path.GetFullPath(args.Length > 1 ? args[1] : Path.Combine(AppContext.BaseDirectory, "App.ico"));
+                var dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
                 Tray.TrayIconFactory.WriteIco(path);
                 return true;
             default:

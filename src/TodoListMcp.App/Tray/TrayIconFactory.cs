@@ -21,7 +21,10 @@ internal static class TrayIconFactory
     /// <summary>Builds the tray icon at the current small-icon size (DPI-aware, crisp).</summary>
     public static Icon Create()
     {
-        var size = Math.Max(16, SystemInformation.SmallIconSize.Width);
+        // Small-icon size is normally square; take the larger dimension defensively so the
+        // rendered (square) bitmap is never smaller than what the shell expects.
+        var small = SystemInformation.SmallIconSize;
+        var size = Math.Max(16, Math.Max(small.Width, small.Height));
         using var bmp = RenderBitmap(size);
         var hicon = bmp.GetHicon();
         try
