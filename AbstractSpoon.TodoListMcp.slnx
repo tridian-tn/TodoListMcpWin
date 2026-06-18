@@ -4,6 +4,7 @@
     <Project Path="src/TodoListMcp.Core/TodoListMcp.Core.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/TodoListMcp.App.Tests/TodoListMcp.App.Tests.csproj" />
     <Project Path="tests/TodoListMcp.Core.Tests/TodoListMcp.Core.Tests.csproj" />
   </Folder>
 </Solution>
