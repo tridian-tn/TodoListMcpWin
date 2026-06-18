@@ -5,12 +5,12 @@ over a local HTTPS endpoint. Apply the rules below when reviewing or generating 
 
 ## Architecture
 
-- **`src/TodoListMcp.Core`** (`net8.0`) — the `.tdl` read/write engine. **No UI, hosting, or
+- **`src/TodoListMcp.Core`** (`net10.0`) — the `.tdl` read/write engine. **No UI, hosting, or
   Windows dependencies**, so it stays unit-testable. All format logic lives here.
-- **`src/TodoListMcp.App`** (`net8.0-windows`) — WinForms tray icon + ASP.NET Core host running the
+- **`src/TodoListMcp.App`** (`net10.0-windows`) — WinForms tray icon + ASP.NET Core host running the
   MCP server, plus the MCP tools, configuration, HTTPS/certificate handling, single-instance, and
   run-at-logon support.
-- **`tests/TodoListMcp.Core.Tests`** (`net8.0`, xUnit) — covers the TDL operations, including a
+- **`tests/TodoListMcp.Core.Tests`** (`net10.0`, xUnit) — covers the TDL operations, including a
   round-trip against a real ToDoList file fixture.
 
 Keep `Core` free of UI/host/Windows references. New `.tdl` behaviour belongs in `Core`, with tests.

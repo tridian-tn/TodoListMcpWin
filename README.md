@@ -11,9 +11,9 @@ start once and leave running, with a visible status icon and quick access to its
 
 | Project | Target | Role |
 | --- | --- | --- |
-| `src/TodoListMcp.Core` | `net8.0` | Format-faithful `.tdl` read/write engine. No Windows/UI dependencies, so it is fully unit-testable. |
-| `src/TodoListMcp.App` | `net8.0-windows` | WinForms tray icon + ASP.NET Core host running the MCP server, plus the MCP tool surface. |
-| `tests/TodoListMcp.Core.Tests` | `net8.0` | xUnit suite covering the TDL operations, including a round-trip against a real ToDoList file. |
+| `src/TodoListMcp.Core` | `net10.0` | Format-faithful `.tdl` read/write engine. No Windows/UI dependencies, so it is fully unit-testable. |
+| `src/TodoListMcp.App` | `net10.0-windows` | WinForms tray icon + ASP.NET Core host running the MCP server, plus the MCP tool surface. |
+| `tests/TodoListMcp.Core.Tests` | `net10.0` | xUnit suite covering the TDL operations, including a round-trip against a real ToDoList file. |
 
 ### Why a separate Core library
 
@@ -41,7 +41,8 @@ The engine mirrors how ToDoList actually stores data (verified against a real ex
 ## Requirements
 
 - Windows 10/11
-- [.NET Desktop Runtime 8](https://dotnet.microsoft.com/download/dotnet/8.0) to run; .NET SDK 8+ to build.
+- [.NET Desktop Runtime 10](https://dotnet.microsoft.com/download/dotnet/10.0) and the ASP.NET Core 10
+  Runtime to run; .NET SDK 10 to build.
 
 ## Build & test
 
