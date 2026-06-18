@@ -6,8 +6,8 @@ name: Release
 # Pre-release tags (containing a hyphen, e.g. v1.2.3-beta.1) are marked as
 # pre-releases automatically.
 #
-# Builds are framework-dependent: users must have the .NET 8 Desktop Runtime
-# AND the ASP.NET Core 8 Runtime installed (the app hosts the MCP server over
+# Builds are framework-dependent: users must have the .NET 10 Desktop Runtime
+# AND the ASP.NET Core 10 Runtime installed (the app hosts the MCP server over
 # Kestrel). Both win-x64 and win-arm64 are produced.
 on:
   push:
@@ -36,7 +36,7 @@ jobs:
     - name: Install .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: 8.0.x
+        dotnet-version: 10.0.x
 
     - name: Derive version from tag
       id: version

@@ -12,7 +12,7 @@ jobs:
       matrix:
         configuration: [Debug, Release]
 
-    # The app targets net8.0-windows (WinForms), so build on Windows.
+    # The app targets net10.0-windows (WinForms), so build on Windows.
     runs-on: windows-latest
 
     steps:
@@ -24,11 +24,7 @@ jobs:
     - name: Install .NET
       uses: actions/setup-dotnet@v4
       with:
-        # 9.0.x understands the .slnx solution format; 8.0.x supplies the
-        # net8.0 / WindowsDesktop targeting packs the projects build against.
-        dotnet-version: |
-          8.0.x
-          9.0.x
+        dotnet-version: 10.0.x
 
     - name: Restore
       run: dotnet restore AbstractSpoon.TodoListMcp.slnx

@@ -45,7 +45,7 @@ internal static class CertificateManager
 
     private static X509Certificate2 Load(string pfxPath)
     {
-        var cert = new X509Certificate2(pfxPath, PfxPassword,
+        var cert = X509CertificateLoader.LoadPkcs12FromFile(pfxPath, PfxPassword,
             X509KeyStorageFlags.Exportable | X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet);
         try { cert.FriendlyName = FriendlyName; } catch { /* not supported on all platforms */ }
         return cert;
@@ -92,7 +92,7 @@ internal static class CertificateManager
                 return true;
 
             // Add the public certificate only (no private key) to the trust store.
-            using var publicOnly = new X509Certificate2(cert.Export(X509ContentType.Cert));
+            using var publicOnly = X509CertificateLoader.LoadCertificate(cert.Export(X509ContentType.Cert));
             store.Add(publicOnly);
             log.Information("Installed the HTTPS certificate into the current user's Trusted Root store.");
             return true;
