@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="README.md" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/TodoListMcp.App/TodoListMcp.App.csproj" />
     <Project Path="src/TodoListMcp.Core/TodoListMcp.Core.csproj" />
