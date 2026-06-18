@@ -104,7 +104,7 @@ Edit it (tray menu → **Open configuration…**). Changes are picked up live, n
 ## HTTPS
 
 HTTPS is off by default — the endpoint is loopback-only, so plain HTTP never leaves your machine. If
-you enable it (`UseHttps: true`), on first run the app:
+you enable it (`"UseHttps": true`), on first run the app:
 
 1. generates a self-signed certificate for `localhost` (SAN: `localhost`, `127.0.0.1`, `::1`), valid
    5 years, persisted at `%APPDATA%\TodoListMcp\todolistmcp-localhost.pfx`;
@@ -187,10 +187,11 @@ todolist: https://localhost:3001/ (HTTP) - ✘ Failed to connect
 # DEPTH_ZERO_SELF_SIGNED_CERT: self-signed certificate
 ```
 
-Tell Node to use the Windows store (`--use-system-ca`, Node 22 or newer), then fully restart Claude
-Code so it picks up the variable:
+Tell Node to use the Windows store with `--use-system-ca` (added in Node 23.8.0 and backported to the
+current v22 and v24 lines — upgrade Node if it isn't recognised), then fully restart Claude Code so
+it picks up the variable:
 
-```bash
+```powershell
 setx NODE_OPTIONS "--use-system-ca"
 ```
 
