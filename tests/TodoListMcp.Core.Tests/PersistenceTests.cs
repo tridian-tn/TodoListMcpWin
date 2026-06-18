@@ -63,4 +63,34 @@ public class PersistenceTests : IDisposable
         Assert.Throws<InvalidTdlException>(() =>
             TodoListDocument.Parse("<?xml version=\"1.0\"?><NOTATODOLIST/>"));
     }
+
+    [Fact]
+    public void Malformed_xml_is_rejected_as_invalid_tdl()
+    {
+        // Unclosed element — the underlying XmlException is wrapped, not leaked.
+        var ex = Assert.Throws<InvalidTdlException>(() =>
+            TodoListDocument.Parse("<TODOLIST><TASK ID=\"1\"></TODOLIST>"));
+        Assert.IsType<System.Xml.XmlException>(ex.InnerException);
+    }
+
+    [Fact]
+    public void Save_without_a_file_path_throws()
+    {
+        // A document parsed from a string has no backing file, so Save() has nowhere to go.
+        Assert.Throws<InvalidOperationException>(() => TestData.Sample().Save());
+    }
+
+    [Fact]
+    public void SaveAs_overwrites_an_existing_file()
+    {
+        var path = Path.Combine(_dir, "out.tdl");
+        var doc = TestData.Sample();
+        doc.SaveAs(path);                                   // first write (move into place)
+
+        doc.UpdateTask(1, new() { Title = "Renamed Parent" });
+        doc.SaveAs(path);                                   // second write (atomic replace)
+
+        Assert.False(File.Exists(path + ".tmp"));
+        Assert.Equal("Renamed Parent", TodoListDocument.Load(path).GetTask(1)!.Title);
+    }
 }

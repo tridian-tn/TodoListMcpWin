@@ -30,6 +30,28 @@ public class UpdateTaskTests
     }
 
     [Fact]
+    public void Update_comments_to_empty_string_clears_element_and_type()
+    {
+        // A single-task document so the structural assertions below are unambiguous.
+        var doc = TodoListDocument.Parse(
+            """
+            <?xml version="1.0" encoding="utf-16"?>
+            <TODOLIST PROJECTNAME="P" NEXTUNIQUEID="2"><TASK ID="1" TITLE="T" POS="0" POSSTRING="1"/></TODOLIST>
+            """,
+            TestData.Clock);
+
+        doc.UpdateTask(1, new() { Comments = "Has notes" });
+        Assert.Contains("COMMENTSTYPE=\"PLAIN_TEXT\"", doc.ToXmlString());
+
+        doc.UpdateTask(1, new() { Comments = "" });
+
+        Assert.Null(doc.GetTask(1)!.Comments);
+        var xml = doc.ToXmlString();
+        Assert.DoesNotContain("<COMMENTS>", xml);
+        Assert.DoesNotContain("COMMENTSTYPE=", xml);
+    }
+
+    [Fact]
     public void Update_with_null_fields_leaves_values_untouched()
     {
         var doc = TestData.Sample();

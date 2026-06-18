@@ -158,6 +158,32 @@ public class AddTaskTests
         Assert.Contains("TIMEESTIMATE=\"0.00000000\"", doc.ToXmlString());
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Add_empty_or_whitespace_title_throws(string title)
+    {
+        var doc = TestData.Sample();
+        Assert.Throws<ArgumentException>(() => doc.AddTask(new() { Title = title }));
+    }
+
+    [Fact]
+    public void Add_falls_back_to_max_id_plus_one_when_NextUniqueId_missing()
+    {
+        // A file without NEXTUNIQUEID (e.g. hand-edited): the next ID is derived from the highest in use.
+        var doc = TodoListDocument.Parse(
+            """
+            <?xml version="1.0" encoding="utf-16"?>
+            <TODOLIST PROJECTNAME="NoCounter"><TASK ID="1" TITLE="A" POS="0" POSSTRING="1"/><TASK ID="5" TITLE="B" POS="1" POSSTRING="2"/></TODOLIST>
+            """,
+            TestData.Clock);
+
+        var created = doc.AddTask(new() { Title = "C" });
+
+        Assert.Equal(6, created.Id);            // max(1, 5) + 1
+        Assert.Equal(7, doc.NextUniqueId);      // counter is now seeded and advanced
+    }
+
     [Fact]
     public void Add_under_missing_parent_throws()
     {
