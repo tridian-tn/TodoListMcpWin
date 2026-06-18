@@ -579,8 +579,9 @@ public sealed class TodoListDocument
         {
             SetTime(e, valueName, unitName, v, unit ?? ReadTimeUnit(e, unitName));
         }
-        else if (unit is TimeUnit u && e.Attribute(valueName) is not null)
+        else if (unit is TimeUnit u && ReadTime(e, valueName) is not null)
         {
+            // Only re-label when there's an actual amount; a 0/unset value reads as "no time".
             e.SetAttributeValue(unitName, TimeUnits.ToFileCode(u).ToString());
         }
     }

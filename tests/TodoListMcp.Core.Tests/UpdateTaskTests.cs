@@ -225,6 +225,18 @@ public class UpdateTaskTests
     }
 
     [Fact]
+    public void Update_unit_alone_on_zero_estimate_is_noop()
+    {
+        var doc = TestData.Sample();
+        // A clamped-to-zero estimate writes TIMEESTIMATE="0..." but reads as "unset".
+        var id = doc.AddTask(new() { Title = "Zero", TimeEstimate = -1 }).Id;
+
+        doc.UpdateTask(id, new() { TimeEstimateUnit = TimeUnit.Days }); // re-label a zero amount
+        Assert.Null(doc.GetTask(id)!.TimeEstimateUnit);
+        Assert.DoesNotContain("TIMEESTUNITS=\"D\"", doc.ToXmlString());
+    }
+
+    [Fact]
     public void Update_sets_and_clears_start_date()
     {
         var doc = TestData.Sample();

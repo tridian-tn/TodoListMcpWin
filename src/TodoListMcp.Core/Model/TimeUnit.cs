@@ -76,7 +76,7 @@ public static class TimeUnits
     /// 4.348 weeks/month, 12 months/year). A custom working week isn't stored per task, so this
     /// is a fixed convention used only for comparing mixed-unit values in search.
     /// </summary>
-    public static double ToHours(double value, TimeUnit unit) => value * unit switch
+    public static double ToHours(double value, TimeUnit unit) => value * (unit switch
     {
         TimeUnit.Minutes => 1.0 / 60.0,
         TimeUnit.Hours => 1.0,
@@ -86,7 +86,7 @@ public static class TimeUnits
         TimeUnit.Months => 173.92,     // 4.348 weeks * 40h
         TimeUnit.Years => 2087.04,     // 12 months
         _ => 1.0,
-    };
+    });
 
     /// <summary>Formats a value the way ToDoList writes time amounts (plain decimal, 8 places).</summary>
     public static string Format(double value) =>
