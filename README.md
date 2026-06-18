@@ -14,6 +14,7 @@ start once and leave running, with a visible status icon and quick access to its
 | `src/TodoListMcp.Core` | `net10.0` | Format-faithful `.tdl` read/write engine. No Windows/UI dependencies, so it is fully unit-testable. |
 | `src/TodoListMcp.App` | `net10.0-windows` | WinForms tray icon + ASP.NET Core host running the MCP server, plus the MCP tool surface. |
 | `tests/TodoListMcp.Core.Tests` | `net10.0` | xUnit suite covering the TDL operations, including a round-trip against a real ToDoList file. |
+| `tests/TodoListMcp.App.Tests` | `net10.0-windows` | xUnit suite covering the App layer's list-alias resolution (default, single-file, ambiguous, unknown, and empty-config paths). |
 
 ### Why a separate Core library
 
@@ -26,13 +27,13 @@ The engine mirrors how ToDoList actually stores data (verified against a real ex
 
 - **UTF-16 (LE, with BOM)** on save, declaring `encoding="utf-16"`.
 - Dates are **OLE-automation serials** (`DateTime.FromOADate` / `ToOADate`).
-- **`PRIORITY` and `RISK` are the native 0–10 scales** (`-2` = none) — no lossy bucketing.
+- **`PRIORITY` and `RISK` are the native 0-10 scales** (`-2` = none), with no lossy bucketing.
 - **`STATUS`, `VERSION`, `EXTERNALID`, `ALLOCATEDBY`** (free text), the **`FLAG`** marker, and
-  **`STARTDATE`** are read and written alongside due date — single-value attributes mirroring how
+  **`STARTDATE`** are read and written alongside due date: single-value attributes mirroring how
   ToDoList stores them.
-- **Effort** is a value + unit pair — `TIMEESTIMATE`/`TIMEESTUNITS` and `TIMESPENT`/`TIMESPENTUNITS`
+- **Effort** is a value + unit pair: `TIMEESTIMATE`/`TIMEESTUNITS` and `TIMESPENT`/`TIMESPENTUNITS`
   (a plain decimal in the unit, *not* an OLE serial). Units are single letters: `I` minutes, `H` hours
-  (default), `D` days, `K` weekdays, `W` weeks, `M` months, `Y` years — the tools also accept the words.
+  (default), `D` days, `K` weekdays, `W` weeks, `M` months, `Y` years. The tools also accept the words.
   The derived `CALC*` rollups are ToDoList's to compute, so they're left untouched and never written.
 - Notes are the **`<COMMENTS>` child element** (`COMMENTSTYPE="PLAIN_TEXT"`), not an attribute.
 - Assignees are **`<PERSON>` child elements** (or a single `ALLOCATEDTO` attribute); categories are
@@ -40,7 +41,7 @@ The engine mirrors how ToDoList actually stores data (verified against a real ex
 - Completion is detected from **`DONEDATE`** (the source of truth). ToDoList's calculated
   **`GOODASDONE`** flag (set by the "treat parents with all subtasks completed as done" option) is
   surfaced read-only as `IsGoodAsDone`, and kept in sync when this server completes/reopens a task.
-- `POS`/`POSSTRING` are renumbered to match document order on structural edits — the same scheme
+- `POS`/`POSSTRING` are renumbered to match document order on structural edits, the same scheme
   ToDoList writes in live files (it orders by document order; the stored values are derived).
 - Unknown attributes/elements are **preserved** across a load → modify → save round-trip (mutations
   edit the loaded XML tree in place rather than regenerating it).
@@ -48,11 +49,11 @@ The engine mirrors how ToDoList actually stores data (verified against a real ex
 ## Requirements
 
 - Windows 10/11
-- **To run** — both the [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)
+- **To run**: both the [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)
   **and** the ASP.NET Core 10 Runtime (the app hosts its MCP server over Kestrel). Release downloads
-  are framework-dependent, so both must be installed before running them — they are the "Desktop
+  are framework-dependent, so both must be installed before running them. They are the "Desktop
   Runtime" and "ASP.NET Core Runtime" installers on that download page.
-- **To build from source** — the .NET SDK 10 (it includes both runtimes).
+- **To build from source**: the .NET SDK 10 (it includes both runtimes).
 
 ## Build & test
 
@@ -64,7 +65,7 @@ dotnet test
 The app icon (a white check mark on a blue rounded square) is drawn in code by `TrayIconFactory`,
 which is the single source of truth. The tray icon is rendered from that code at runtime; the
 committed `src/TodoListMcp.App/Resources/App.ico` is the **executable** icon (Explorer, taskbar,
-Alt-Tab), generated from the same drawing — so the two always match. Regenerate the asset with:
+Alt-Tab), generated from the same drawing, so the two always match. Regenerate the asset with:
 
 ```bash
 TodoListMcp.exe --write-icon src/TodoListMcp.App/Resources/App.ico
@@ -78,7 +79,9 @@ On first launch the app writes a starter config to:
 %APPDATA%\TodoListMcp\config.json
 ```
 
-Edit it (tray menu → **Open configuration…**). Changes are picked up live, no restart needed.
+Edit it (tray menu → **Open configuration…**). Changes to the file list (aliases, paths, default)
+and `ModifiedBy` are picked up live. `Port`, `UseHttps`, and `TrustCertificate` are read once at
+startup, so changing those needs an app restart.
 
 ```json
 {
@@ -95,20 +98,20 @@ Edit it (tray menu → **Open configuration…**). Changes are picked up live, n
 }
 ```
 
-- **Alias** — the short name tool callers pass as `list`. Omit `list` in a call to use the `Default`
+- **Alias**: the short name tool callers pass as `list`. Omit `list` in a call to use the `Default`
   file (or the only file, if just one is configured).
-- **Port** — loopback TCP port; the server binds `127.0.0.1`/`::1` only.
-- **UseHttps** — serve over HTTPS. Off by default: the server is loopback-only, so plain HTTP never
-  leaves your machine and skips the certificate step. Set `true` to enable TLS — see
+- **Port**: loopback TCP port; the server binds `127.0.0.1`/`::1` only.
+- **UseHttps**: serve over HTTPS. Off by default: the server is loopback-only, so plain HTTP never
+  leaves your machine and skips the certificate step. Set `true` to enable TLS; see
   [Connect Claude](#connect-claude).
-- **TrustCertificate** — install the localhost certificate into your current-user Trusted Root store
+- **TrustCertificate**: install the localhost certificate into your current-user Trusted Root store
   (default). First install shows a one-time Windows consent prompt; no admin needed. Node-based
-  clients need one more step to honour it — see [Connect Claude](#connect-claude).
-- **ModifiedBy** — written to each task's `LASTMODBY` when this server changes it.
+  clients need one more step to honour it; see [Connect Claude](#connect-claude).
+- **ModifiedBy**: written to each task's `LASTMODBY` when this server changes it.
 
 ## HTTPS
 
-HTTPS is off by default — the endpoint is loopback-only, so plain HTTP never leaves your machine. If
+HTTPS is off by default: the endpoint is loopback-only, so plain HTTP never leaves your machine. If
 you enable it (`"UseHttps": true`), on first run the app:
 
 1. generates a self-signed certificate for `localhost` (SAN: `localhost`, `127.0.0.1`, `::1`), valid
@@ -118,7 +121,7 @@ you enable it (`"UseHttps": true`), on first run the app:
 
 If you skipped the prompt, re-run it any time from the tray: **Trust HTTPS certificate (for Claude)…**.
 Node-based clients (Claude Code, and the `mcp-remote` bridge) need one extra setting to honour that
-certificate — see [Connect Claude](#connect-claude).
+certificate; see [Connect Claude](#connect-claude).
 
 ## Run
 
@@ -127,8 +130,8 @@ dotnet run --project src/TodoListMcp.App
 ```
 
 A tray icon appears. Right-click for: server URL, the configured lists, copy URL, open
-configuration, open log folder, trust HTTPS certificate, **Start with Windows**, and exit. Logs
-roll daily under `%APPDATA%\TodoListMcp\logs`.
+configuration, open log folder, **Start with Windows**, and exit, plus trust HTTPS certificate when
+HTTPS is enabled. Logs roll daily under `%APPDATA%\TodoListMcp\logs`.
 
 ### Single instance
 
@@ -148,18 +151,18 @@ TodoListMcp.exe --disable-autostart
 
 ## Connect Claude
 
-The server speaks MCP over **Streamable HTTP** at the root path — `http(s)://localhost:<Port>/`,
+The server speaks MCP over **Streamable HTTP** at the root path: `http(s)://localhost:<Port>/`,
 port `3001` by default. It listens on loopback only, so it's reachable from programs on this machine
 but not from the network.
 
 ### HTTP or HTTPS?
 
 Because the endpoint is loopback-only, **plain HTTP is the simplest option and nothing leaves your
-computer** — so it's the default. HTTPS also works, but its self-signed certificate needs an extra
+computer**, so it's the default. HTTPS also works, but its self-signed certificate needs an extra
 step for Node-based clients, so reach for it only if you specifically want TLS locally.
 
-- **HTTP** (default) — use `http://localhost:3001/`.
-- **HTTPS** — set `"UseHttps": true`, restart the app, follow the certificate step below, and use
+- **HTTP** (default): use `http://localhost:3001/`.
+- **HTTPS**: set `"UseHttps": true`, restart the app, follow the certificate step below, and use
   `https://localhost:3001/`.
 
 ### Claude Code
@@ -181,7 +184,7 @@ claude mcp get todolist        # Status: ✔ Connected
 
 The tools (`get_tasks`, `add_task`, …) are then available in any session.
 
-#### HTTPS with Claude Code — the Node certificate step
+#### HTTPS with Claude Code: the Node certificate step
 
 Claude Code runs on Node.js, which validates TLS against **its own bundled CA list and ignores the
 Windows certificate store by default**. So even with `TrustCertificate: true` (which installs the
@@ -193,7 +196,7 @@ todolist: https://localhost:3001/ (HTTP) - ✘ Failed to connect
 ```
 
 Tell Node to use the Windows store with `--use-system-ca` (added in Node 23.8.0 and backported to the
-current v22 and v24 lines — upgrade Node if it isn't recognised), then fully restart Claude Code so
+current v22 and v24 lines; upgrade Node if it isn't recognised), then fully restart Claude Code so
 it picks up the variable:
 
 ```powershell
@@ -201,13 +204,13 @@ setx NODE_OPTIONS "--use-system-ca"
 ```
 
 `claude mcp get todolist` should now report **Connected**. (This makes every Node process on your
-account read the Windows store — harmless.) To avoid certificates altogether, use the `http://` URL
+account read the Windows store, which is harmless.) To avoid certificates altogether, use the `http://` URL
 instead.
 
 ### Claude Desktop
 
-Claude Desktop's **custom connectors** are for *remote* MCP servers — Claude reaches them from
-Anthropic's infrastructure, not from your computer — so a `localhost` URL entered there won't
+Claude Desktop's **custom connectors** are for *remote* MCP servers: Claude reaches them from
+Anthropic's infrastructure, not from your computer, so a `localhost` URL entered there won't
 connect. Bridge this local server instead with [`mcp-remote`][mcp-remote], a small Node proxy, in
 `claude_desktop_config.json` (open it from **Settings → Developer → Edit Config**):
 
@@ -248,7 +251,7 @@ Every tool takes an optional `list` alias; omit it to use the default list.
 ## Concurrency note
 
 Each operation loads the file fresh and writes atomically (temp file + replace), with a per-file
-lock. **ToDoList loads a file into memory and rewrites the whole thing when it saves**, so it will
+lock. **ToDoList loads a file into memory and rewrites the whole thing when it saves**, so it **may**
 not see external edits made while it has the file open, and may overwrite them on its next save.
 Edit a given `.tdl` from this server only while ToDoList does not have that file open (or reload it
 in ToDoList afterwards).
