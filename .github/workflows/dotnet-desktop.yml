@@ -27,10 +27,10 @@ jobs:
         dotnet-version: 10.0.x
 
     - name: Restore
-      run: dotnet restore AbstractSpoon.TodoListMcp.slnx
+      run: dotnet restore TodoListMcp.slnx
 
     - name: Build
-      run: dotnet build AbstractSpoon.TodoListMcp.slnx -c ${{ matrix.configuration }} --no-restore
+      run: dotnet build TodoListMcp.slnx -c ${{ matrix.configuration }} --no-restore
 
     - name: Test
-      run: dotnet test AbstractSpoon.TodoListMcp.slnx -c ${{ matrix.configuration }} --no-build
+      run: dotnet test TodoListMcp.slnx -c ${{ matrix.configuration }} --no-build
