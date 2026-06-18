@@ -79,7 +79,7 @@ Edit it (tray menu → **Open configuration…**). Changes are picked up live, n
 {
   "TodoListMcp": {
     "Port": 3001,
-    "UseHttps": true,
+    "UseHttps": false,
     "TrustCertificate": true,
     "ModifiedBy": "TodoListMcp",
     "Files": [
@@ -93,21 +93,27 @@ Edit it (tray menu → **Open configuration…**). Changes are picked up live, n
 - **Alias** — the short name tool callers pass as `list`. Omit `list` in a call to use the `Default`
   file (or the only file, if just one is configured).
 - **Port** — loopback TCP port; the server binds `127.0.0.1`/`::1` only.
-- **UseHttps** — serve over HTTPS (default; required by Claude's connector flow). `false` = plain HTTP.
-- **TrustCertificate** — install the localhost certificate into your Trusted Root store so Claude
-  accepts it (default). First install shows a one-time Windows consent prompt; no admin needed.
+- **UseHttps** — serve over HTTPS. Off by default: the server is loopback-only, so plain HTTP never
+  leaves your machine and skips the certificate step. Set `true` to enable TLS — see
+  [Connect Claude](#connect-claude).
+- **TrustCertificate** — install the localhost certificate into your current-user Trusted Root store
+  (default). First install shows a one-time Windows consent prompt; no admin needed. Node-based
+  clients need one more step to honour it — see [Connect Claude](#connect-claude).
 - **ModifiedBy** — written to each task's `LASTMODBY` when this server changes it.
 
 ## HTTPS
 
-Claude's custom-connector flow requires `https://`. On first run with `UseHttps` (the default) the app:
+HTTPS is off by default — the endpoint is loopback-only, so plain HTTP never leaves your machine. If
+you enable it (`"UseHttps": true`), on first run the app:
 
 1. generates a self-signed certificate for `localhost` (SAN: `localhost`, `127.0.0.1`, `::1`), valid
    5 years, persisted at `%APPDATA%\TodoListMcp\todolistmcp-localhost.pfx`;
 2. with `TrustCertificate` on, installs it into your **current-user Trusted Root** store (one-time
-   consent prompt) so Claude Desktop — which uses the Windows certificate store — trusts it.
+   consent prompt) so programs that read the Windows certificate store trust it.
 
 If you skipped the prompt, re-run it any time from the tray: **Trust HTTPS certificate (for Claude)…**.
+Node-based clients (Claude Code, and the `mcp-remote` bridge) need one extra setting to honour that
+certificate — see [Connect Claude](#connect-claude).
 
 ## Run
 
@@ -135,19 +141,88 @@ TodoListMcp.exe --enable-autostart
 TodoListMcp.exe --disable-autostart
 ```
 
-## Connect an MCP client
+## Connect Claude
 
-The endpoint is `https://localhost:<Port>/` (default `https://localhost:3001/`).
+The server speaks MCP over **Streamable HTTP** at the root path — `http(s)://localhost:<Port>/`,
+port `3001` by default. It listens on loopback only, so it's reachable from programs on this machine
+but not from the network.
 
-Claude Code:
+### HTTP or HTTPS?
+
+Because the endpoint is loopback-only, **plain HTTP is the simplest option and nothing leaves your
+computer** — so it's the default. HTTPS also works, but its self-signed certificate needs an extra
+step for Node-based clients, so reach for it only if you specifically want TLS locally.
+
+- **HTTP** (default) — use `http://localhost:3001/`.
+- **HTTPS** — set `"UseHttps": true`, restart the app, follow the certificate step below, and use
+  `https://localhost:3001/`.
+
+### Claude Code
+
+Register the server with the `http` transport, at *user* scope so it's available from every
+directory (the default scope is local to wherever you run the command):
 
 ```bash
-claude mcp add --transport http todolist https://localhost:3001/
+claude mcp add --transport http --scope user todolist http://localhost:3001/
 ```
 
-Claude Desktop: add a custom connector pointing at the same `https://localhost:3001/` URL. Make sure
-the certificate is trusted first (tray → **Trust HTTPS certificate (for Claude)**, or leave
-`TrustCertificate` on so it happens at startup).
+`--transport http` selects MCP's Streamable HTTP transport for both schemes; the URL (`http://` vs
+`https://`) decides whether TLS is used. Claude Code loads MCP servers at startup, so open a fresh
+session and confirm:
+
+```bash
+claude mcp get todolist        # Status: ✔ Connected
+```
+
+The tools (`get_tasks`, `add_task`, …) are then available in any session.
+
+#### HTTPS with Claude Code — the Node certificate step
+
+Claude Code runs on Node.js, which validates TLS against **its own bundled CA list and ignores the
+Windows certificate store by default**. So even with `TrustCertificate: true` (which installs the
+certificate into the Windows Trusted Root store), Node rejects the self-signed certificate:
+
+```
+todolist: https://localhost:3001/ (HTTP) - ✘ Failed to connect
+# DEPTH_ZERO_SELF_SIGNED_CERT: self-signed certificate
+```
+
+Tell Node to use the Windows store with `--use-system-ca` (added in Node 23.8.0 and backported to the
+current v22 and v24 lines — upgrade Node if it isn't recognised), then fully restart Claude Code so
+it picks up the variable:
+
+```powershell
+setx NODE_OPTIONS "--use-system-ca"
+```
+
+`claude mcp get todolist` should now report **Connected**. (This makes every Node process on your
+account read the Windows store — harmless.) To avoid certificates altogether, use the `http://` URL
+instead.
+
+### Claude Desktop
+
+Claude Desktop's **custom connectors** are for *remote* MCP servers — Claude reaches them from
+Anthropic's infrastructure, not from your computer — so a `localhost` URL entered there won't
+connect. Bridge this local server instead with [`mcp-remote`][mcp-remote], a small Node proxy, in
+`claude_desktop_config.json` (open it from **Settings → Developer → Edit Config**):
+
+```json
+{
+  "mcpServers": {
+    "todolist": {
+      "command": "npx",
+      "args": ["mcp-remote", "http://localhost:3001/"]
+    }
+  }
+}
+```
+
+The bridge keeps the connection local. Because it runs on Node, the **same certificate step as Claude
+Code** applies if you point it at an `https://` URL: keep `TrustCertificate` on and set
+`NODE_OPTIONS=--use-system-ca` before launching Claude Desktop. Using the `http://` URL above skips
+this entirely. Restart Claude Desktop after editing the file.
+
+[mcp-remote]: https://www.npmjs.com/package/mcp-remote
 
 ## Tools
 

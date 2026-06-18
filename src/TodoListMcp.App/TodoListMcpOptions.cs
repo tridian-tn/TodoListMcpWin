@@ -9,10 +9,11 @@ public sealed class TodoListMcpOptions
     public int Port { get; set; } = 3001;
 
     /// <summary>
-    /// Serve over HTTPS (required by Claude's custom-connector flow). When true the app uses a
-    /// self-signed localhost certificate; when false it falls back to plain HTTP.
+    /// Serve over HTTPS. Off by default: the endpoint is loopback-only, so plain HTTP never leaves
+    /// the machine and avoids the certificate step. When true the app uses a self-signed localhost
+    /// certificate; when false it serves plain HTTP.
     /// </summary>
-    public bool UseHttps { get; set; } = true;
+    public bool UseHttps { get; set; } = false;
 
     /// <summary>
     /// Install the self-signed certificate into the current user's Trusted Root store so Claude

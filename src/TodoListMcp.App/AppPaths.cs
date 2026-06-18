@@ -32,7 +32,7 @@ internal static class AppPaths
         {
           "TodoListMcp": {
             "Port": 3001,
-            "UseHttps": true,
+            "UseHttps": false,
             "TrustCertificate": true,
             "ModifiedBy": "TodoListMcp",
             "Files": [
