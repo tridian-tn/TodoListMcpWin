@@ -41,7 +41,7 @@ The engine mirrors how ToDoList actually stores data (verified against a real ex
 - Completion is detected from **`DONEDATE`** (the source of truth). ToDoList's calculated
   **`GOODASDONE`** flag (set by the "treat parents with all subtasks completed as done" option) is
   surfaced read-only as `IsGoodAsDone`, and kept in sync when this server completes/reopens a task.
-- `POS`/`POSSTRING` are renumbered to match document order on structural edits, the same scheme
+- `POS`/`POSSTRING` are renumbered to match document order on structural edits, using the same scheme
   ToDoList writes in live files (it orders by document order; the stored values are derived).
 - Unknown attributes/elements are **preserved** across a load → modify → save round-trip (mutations
   edit the loaded XML tree in place rather than regenerating it).
