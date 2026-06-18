@@ -41,8 +41,11 @@ The engine mirrors how ToDoList actually stores data (verified against a real ex
 ## Requirements
 
 - Windows 10/11
-- [.NET Desktop Runtime 10](https://dotnet.microsoft.com/download/dotnet/10.0) and the ASP.NET Core 10
-  Runtime to run; .NET SDK 10 to build.
+- **To run** — both the [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)
+  **and** the ASP.NET Core 10 Runtime (the app hosts its MCP server over Kestrel). Release downloads
+  are framework-dependent, so both must be installed before running them — they are the "Desktop
+  Runtime" and "ASP.NET Core Runtime" installers on that download page.
+- **To build from source** — the .NET SDK 10 (it includes both runtimes).
 
 ## Build & test
 
