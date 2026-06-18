@@ -1,10 +1,10 @@
-# TodoList MCP (AbstractSpoon ToDoList)
+# TodoList MCP Win (An MCP server for AbstractSpoon ToDoList)
 
-A Windows **system-tray application** that exposes [AbstractSpoon ToDoList](https://abstractspoon.com/)
+A Windows system-tray application that exposes [AbstractSpoon ToDoList](https://abstractspoon.com/)
 `.tdl` files to MCP clients (Claude Desktop, Claude Code, etc.) over a local **Streamable HTTP**
 endpoint. It can serve any number of `.tdl` files listed in a configuration file.
 
-A tray app — rather than a stdio MCP server — is the natural fit here: it's a persistent host you
+The tray app - rather than a stdio MCP server - is a persistent host you
 start once and leave running, with a visible status icon and quick access to its config and logs.
 
 ## Solution layout
