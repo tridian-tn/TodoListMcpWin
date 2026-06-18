@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        configuration: [Debug, Release]
+
+    # The app targets net8.0-windows (WinForms), so build on Windows.
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Install .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        # 9.0.x understands the .slnx solution format; 8.0.x supplies the
+        # net8.0 / WindowsDesktop targeting packs the projects build against.
+        dotnet-version: |
+          8.0.x
+          9.0.x
+
+    - name: Restore
+      run: dotnet restore AbstractSpoon.TodoListMcp.slnx
+
+    - name: Build
+      run: dotnet build AbstractSpoon.TodoListMcp.slnx -c ${{ matrix.configuration }} --no-restore
+
+    - name: Test
+      run: dotnet test AbstractSpoon.TodoListMcp.slnx -c ${{ matrix.configuration }} --no-build
