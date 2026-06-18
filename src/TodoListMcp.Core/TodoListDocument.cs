@@ -168,7 +168,15 @@ public sealed class TodoListDocument
             !t.AllocatedTo.Any(p => p.Equals(q.Person.Trim(), StringComparison.OrdinalIgnoreCase)))
             return false;
         if (q.Completed is bool done && t.IsDone != done) return false;
+        if (q.Flagged is bool flagged && t.IsFlagged != flagged) return false;
         if (q.MinPriority is int min && (t.Priority ?? -1) < min) return false;
+        if (q.MinRisk is int minRisk && (t.Risk ?? -1) < minRisk) return false;
+        if (!string.IsNullOrWhiteSpace(q.Status) &&
+            !string.Equals(t.Status, q.Status.Trim(), StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (!string.IsNullOrWhiteSpace(q.ExternalId) &&
+            !string.Equals(t.ExternalId, q.ExternalId.Trim(), StringComparison.OrdinalIgnoreCase))
+            return false;
         return true;
     }
 
@@ -176,8 +184,12 @@ public sealed class TodoListDocument
     {
         Id = (int?)e.Attribute("ID") ?? 0,
         Title = (string?)e.Attribute("TITLE") ?? "",
+        ExternalId = NullIfEmpty((string?)e.Attribute("EXTERNALID")),
         Comments = ReadComments(e),
-        Priority = ReadPriority(e),
+        Priority = ReadScale(e, "PRIORITY"),
+        Risk = ReadScale(e, "RISK"),
+        Status = NullIfEmpty((string?)e.Attribute("STATUS")),
+        IsFlagged = (string?)e.Attribute("FLAG") == "1",
         PercentDone = (int?)e.Attribute("PERCENTDONE") ?? 0,
         IsDone = e.Attribute("DONEDATE") is { } d && !string.IsNullOrWhiteSpace(d.Value),
         IsGoodAsDone = (string?)e.Attribute("GOODASDONE") == "1",
@@ -201,11 +213,14 @@ public sealed class TodoListDocument
         return (string?)e.Attribute("COMMENTS");
     }
 
-    private static int? ReadPriority(XElement e)
+    /// <summary>Reads a 0–10 scale attribute (PRIORITY/RISK); ToDoList's -2 "unset" maps to null.</summary>
+    private static int? ReadScale(XElement e, string name)
     {
-        var p = (int?)e.Attribute("PRIORITY");
+        var p = (int?)e.Attribute(name);
         return p is null or < 0 ? null : p;
     }
+
+    private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
 
     private static IReadOnlyList<string> ReadMulti(XElement e, string attrName, string childName)
     {
@@ -248,9 +263,15 @@ public sealed class TodoListDocument
         SetOaDate(e, "CREATIONDATE", now);
         e.SetAttributeValue("CREATIONDATESTRING", FormatStamp(now));
 
-        if (req.Priority is int pr) e.SetAttributeValue("PRIORITY", ClampPriority(pr));
+        if (req.Priority is int pr) e.SetAttributeValue("PRIORITY", ClampScale(pr));
+        if (req.Risk is int rk) e.SetAttributeValue("RISK", ClampScale(rk));
+        if (req.PercentDone is int pd) e.SetAttributeValue("PERCENTDONE", Math.Clamp(pd, 0, 100));
         if (req.Comments is not null) SetComments(e, req.Comments);
         if (req.DueDate is DateTime due) SetDueDate(e, due);
+        if (req.StartDate is DateTime start) SetStartDate(e, start);
+        if (req.Status is not null) SetStatus(e, req.Status);
+        if (req.Flag) SetFlag(e, true);
+        if (req.ExternalId is not null) SetExternalId(e, req.ExternalId);
         SetMulti(e, "CATEGORY", "CATEGORY", req.Categories);
         SetMulti(e, "ALLOCATEDTO", "PERSON", req.AllocatedTo);
         Touch(e, now);
@@ -273,9 +294,15 @@ public sealed class TodoListDocument
 
         if (req.Title is not null) e.SetAttributeValue("TITLE", req.Title);
         if (req.Comments is not null) SetComments(e, req.Comments);
+        if (req.ExternalId is not null) SetExternalId(e, req.ExternalId);
+        if (req.Status is not null) SetStatus(e, req.Status);
+        if (req.Flag is bool flag) SetFlag(e, flag);
 
         if (req.ClearPriority) e.SetAttributeValue("PRIORITY", null);
-        else if (req.Priority is int p) e.SetAttributeValue("PRIORITY", ClampPriority(p));
+        else if (req.Priority is int p) e.SetAttributeValue("PRIORITY", ClampScale(p));
+
+        if (req.ClearRisk) e.SetAttributeValue("RISK", null);
+        else if (req.Risk is int r) e.SetAttributeValue("RISK", ClampScale(r));
 
         if (req.PercentDone is int pd) e.SetAttributeValue("PERCENTDONE", Math.Clamp(pd, 0, 100));
 
@@ -287,6 +314,16 @@ public sealed class TodoListDocument
         else if (req.DueDate is DateTime due)
         {
             SetDueDate(e, due);
+        }
+
+        if (req.ClearStartDate)
+        {
+            e.SetAttributeValue("STARTDATE", null);
+            e.SetAttributeValue("STARTDATESTRING", null);
+        }
+        else if (req.StartDate is DateTime start)
+        {
+            SetStartDate(e, start);
         }
 
         if (req.Categories is not null) SetMulti(e, "CATEGORY", "CATEGORY", req.Categories);
@@ -446,6 +483,21 @@ public sealed class TodoListDocument
         e.SetAttributeValue("DUEDATESTRING", FormatStamp(due));
     }
 
+    private void SetStartDate(XElement e, DateTime start)
+    {
+        SetOaDate(e, "STARTDATE", start);
+        e.SetAttributeValue("STARTDATESTRING", FormatStamp(start));
+    }
+
+    private static void SetStatus(XElement e, string status) =>
+        e.SetAttributeValue("STATUS", string.IsNullOrEmpty(status) ? null : status);
+
+    private static void SetExternalId(XElement e, string externalId) =>
+        e.SetAttributeValue("EXTERNALID", string.IsNullOrEmpty(externalId) ? null : externalId);
+
+    private static void SetFlag(XElement e, bool flag) =>
+        e.SetAttributeValue("FLAG", flag ? "1" : null);
+
     private static void SetOaDate(XElement e, string name, DateTime value) =>
         e.SetAttributeValue(name, value.ToOADate().ToString("0.00000000", CultureInfo.InvariantCulture));
 
@@ -462,7 +514,7 @@ public sealed class TodoListDocument
         _root.SetAttributeValue("LASTMODSTRING", FormatStamp(now));
     }
 
-    private static int ClampPriority(int p) => Math.Clamp(p, 0, 10);
+    private static int ClampScale(int v) => Math.Clamp(v, 0, 10);
 
     private static string FormatStamp(DateTime dt) =>
         dt.ToString("d/M/yyyy h:mm tt", CultureInfo.InvariantCulture);

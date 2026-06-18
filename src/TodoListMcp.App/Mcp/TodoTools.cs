@@ -37,13 +37,17 @@ public sealed class TodoTools
         ?? throw new InvalidOperationException($"Task {id} was not found.");
 
     [McpServerTool(Name = "search_tasks")]
-    [Description("Search tasks by text, category, assignee, completion state, or minimum priority. Returns a flat list of matches.")]
+    [Description("Search tasks by text, category, assignee, completion, flag, status, external ID, or minimum priority/risk. Returns a flat list of matches.")]
     public IReadOnlyList<TodoTask> SearchTasks(
         [Description("Case-insensitive text matched against the title and notes.")] string? text = null,
         [Description("Only tasks in this category.")] string? category = null,
         [Description("Only tasks assigned to this person.")] string? person = null,
         [Description("Filter by completion: true = done only, false = open only.")] bool? completed = null,
+        [Description("Filter by flag: true = flagged only, false = un-flagged only.")] bool? flagged = null,
+        [Description("Exact (case-insensitive) workflow status, e.g. \"In Progress\".")] string? status = null,
+        [Description("Exact (case-insensitive) external ID, e.g. an issue key.")] string? externalId = null,
         [Description("Minimum priority on the 0-10 scale.")] int? minPriority = null,
+        [Description("Minimum risk on the 0-10 scale.")] int? minRisk = null,
         [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
         _manager.Read(list, d => d.Search(new TaskQuery
         {
@@ -51,7 +55,11 @@ public sealed class TodoTools
             Category = category,
             Person = person,
             Completed = completed,
+            Flagged = flagged,
+            Status = status,
+            ExternalId = externalId,
             MinPriority = minPriority,
+            MinRisk = minRisk,
         }));
 
     [McpServerTool(Name = "add_task")]
@@ -62,7 +70,13 @@ public sealed class TodoTools
         [Description("Zero-based position among siblings. Omit to append at the end.")] int? index = null,
         [Description("Plain-text notes for the task.")] string? comments = null,
         [Description("Priority on the 0-10 scale.")] int? priority = null,
+        [Description("Risk on the 0-10 scale.")] int? risk = null,
+        [Description("Initial completion percentage, 0-100. Omit to start at 0.")] int? percentDone = null,
         [Description("Due date as yyyy-MM-dd or ISO 8601.")] string? dueDate = null,
+        [Description("Start date as yyyy-MM-dd or ISO 8601.")] string? startDate = null,
+        [Description("Free-text workflow status, e.g. \"In Progress\".")] string? status = null,
+        [Description("Set the flag (star) marker on the task.")] bool flag = false,
+        [Description("Caller-defined external reference, e.g. an issue key.")] string? externalId = null,
         [Description("Categories to assign.")] string[]? categories = null,
         [Description("People to assign the task to.")] string[]? allocatedTo = null,
         [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
@@ -73,7 +87,13 @@ public sealed class TodoTools
             Index = index,
             Comments = comments,
             Priority = priority,
+            Risk = risk,
+            PercentDone = percentDone,
             DueDate = ParseDate(dueDate),
+            StartDate = ParseDate(startDate),
+            Status = status,
+            Flag = flag,
+            ExternalId = externalId,
             Categories = categories ?? Array.Empty<string>(),
             AllocatedTo = allocatedTo ?? Array.Empty<string>(),
         }));
@@ -86,9 +106,16 @@ public sealed class TodoTools
         [Description("New notes (empty string clears the notes).")] string? comments = null,
         [Description("New priority on the 0-10 scale.")] int? priority = null,
         [Description("Remove the priority entirely.")] bool clearPriority = false,
+        [Description("New risk on the 0-10 scale.")] int? risk = null,
+        [Description("Remove the risk entirely.")] bool clearRisk = false,
         [Description("Completion percentage, 0-100.")] int? percentDone = null,
         [Description("New due date as yyyy-MM-dd or ISO 8601.")] string? dueDate = null,
         [Description("Remove the due date entirely.")] bool clearDueDate = false,
+        [Description("New start date as yyyy-MM-dd or ISO 8601.")] string? startDate = null,
+        [Description("Remove the start date entirely.")] bool clearStartDate = false,
+        [Description("New workflow status (empty string clears it).")] string? status = null,
+        [Description("Set or remove the flag (star) marker.")] bool? flag = null,
+        [Description("New external ID (empty string clears it).")] string? externalId = null,
         [Description("Replace the categories (empty array clears them).")] string[]? categories = null,
         [Description("Replace the assignees (empty array clears them).")] string[]? allocatedTo = null,
         [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
@@ -98,9 +125,16 @@ public sealed class TodoTools
             Comments = comments,
             Priority = priority,
             ClearPriority = clearPriority,
+            Risk = risk,
+            ClearRisk = clearRisk,
             PercentDone = percentDone,
             DueDate = ParseDate(dueDate),
             ClearDueDate = clearDueDate,
+            StartDate = ParseDate(startDate),
+            ClearStartDate = clearStartDate,
+            Status = status,
+            Flag = flag,
+            ExternalId = externalId,
             Categories = categories,
             AllocatedTo = allocatedTo,
         }));

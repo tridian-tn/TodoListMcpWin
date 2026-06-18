@@ -16,7 +16,23 @@ public sealed class AddTaskRequest
     /// <summary>Priority on the 0–10 scale (values are clamped).</summary>
     public int? Priority { get; init; }
 
+    /// <summary>Risk on the 0–10 scale (values are clamped).</summary>
+    public int? Risk { get; init; }
+
+    /// <summary>Initial completion percentage, 0–100 (clamped). Omit to start at 0.</summary>
+    public int? PercentDone { get; init; }
+
     public DateTime? DueDate { get; init; }
+    public DateTime? StartDate { get; init; }
+
+    /// <summary>Free-text workflow status, e.g. "In Progress".</summary>
+    public string? Status { get; init; }
+
+    /// <summary>When true, sets the FLAG marker on the new task.</summary>
+    public bool Flag { get; init; }
+
+    /// <summary>A caller-defined external reference (e.g. an issue key).</summary>
+    public string? ExternalId { get; init; }
 
     public IReadOnlyList<string> Categories { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> AllocatedTo { get; init; } = Array.Empty<string>();
@@ -39,12 +55,32 @@ public sealed class UpdateTaskRequest
     /// <summary>When true, removes the priority regardless of <see cref="Priority"/>.</summary>
     public bool ClearPriority { get; init; }
 
+    /// <summary>Null = unchanged; a value sets risk (0–10, clamped).</summary>
+    public int? Risk { get; init; }
+
+    /// <summary>When true, removes the risk regardless of <see cref="Risk"/>.</summary>
+    public bool ClearRisk { get; init; }
+
     public int? PercentDone { get; init; }
 
     public DateTime? DueDate { get; init; }
 
     /// <summary>When true, removes the due date regardless of <see cref="DueDate"/>.</summary>
     public bool ClearDueDate { get; init; }
+
+    public DateTime? StartDate { get; init; }
+
+    /// <summary>When true, removes the start date regardless of <see cref="StartDate"/>.</summary>
+    public bool ClearStartDate { get; init; }
+
+    /// <summary>Null = unchanged; a value (including empty string) replaces the status.</summary>
+    public string? Status { get; init; }
+
+    /// <summary>Null = unchanged; true/false sets or removes the FLAG marker.</summary>
+    public bool? Flag { get; init; }
+
+    /// <summary>Null = unchanged; a value (including empty string) replaces the external ID.</summary>
+    public string? ExternalId { get; init; }
 
     /// <summary>Null = unchanged; a list (including empty) replaces the categories.</summary>
     public IReadOnlyList<string>? Categories { get; init; }
@@ -66,6 +102,18 @@ public sealed class TaskQuery
     /// <summary>Null = any; true = only done; false = only not-done.</summary>
     public bool? Completed { get; init; }
 
+    /// <summary>Null = any; true = only flagged; false = only un-flagged.</summary>
+    public bool? Flagged { get; init; }
+
     /// <summary>Minimum priority (inclusive) on the 0–10 scale.</summary>
     public int? MinPriority { get; init; }
+
+    /// <summary>Minimum risk (inclusive) on the 0–10 scale.</summary>
+    public int? MinRisk { get; init; }
+
+    /// <summary>Exact (case-insensitive) workflow status to match.</summary>
+    public string? Status { get; init; }
+
+    /// <summary>Exact (case-insensitive) external ID to match.</summary>
+    public string? ExternalId { get; init; }
 }

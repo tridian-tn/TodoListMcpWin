@@ -49,6 +49,20 @@ public class SearchTests
     }
 
     [Fact]
+    public void Filter_by_status_flag_risk_and_external_id()
+    {
+        var doc = TestData.Sample();
+        doc.UpdateTask(3, new() { Status = "In Progress", Risk = 7, Flag = true, ExternalId = "JIRA-12" });
+
+        Assert.Equal(new[] { 3 }, Ids(doc.Search(new() { Status = "in progress" }))); // case-insensitive
+        Assert.Equal(new[] { 3 }, Ids(doc.Search(new() { Flagged = true })));
+        Assert.Equal(new[] { 1, 2 }, Ids(doc.Search(new() { Flagged = false })));
+        Assert.Equal(new[] { 3 }, Ids(doc.Search(new() { MinRisk = 5 })));
+        Assert.Equal(new[] { 3 }, Ids(doc.Search(new() { ExternalId = "JIRA-12" })));
+        Assert.Empty(doc.Search(new() { ExternalId = "nope" }));
+    }
+
+    [Fact]
     public void Criteria_combine_with_and()
     {
         var doc = TestData.Sample();

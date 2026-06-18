@@ -63,6 +63,45 @@ public class AddTaskTests
     }
 
     [Fact]
+    public void Add_persists_new_fields_and_writes_expected_attributes()
+    {
+        var doc = TestData.Sample();
+        var created = doc.AddTask(new()
+        {
+            Title = "Rich",
+            Risk = 6,
+            PercentDone = 25,
+            StartDate = new DateTime(2026, 1, 2),
+            Status = "In Progress",
+            Flag = true,
+            ExternalId = "JIRA-42",
+        });
+
+        var read = doc.GetTask(created.Id)!;
+        Assert.Equal(6, read.Risk);
+        Assert.Equal(25, read.PercentDone);
+        Assert.Equal(new DateTime(2026, 1, 2), read.StartDate);
+        Assert.Equal("In Progress", read.Status);
+        Assert.True(read.IsFlagged);
+        Assert.Equal("JIRA-42", read.ExternalId);
+
+        var xml = doc.ToXmlString();
+        Assert.Contains("RISK=\"6\"", xml);
+        Assert.Contains("STATUS=\"In Progress\"", xml);
+        Assert.Contains("FLAG=\"1\"", xml);
+        Assert.Contains("EXTERNALID=\"JIRA-42\"", xml);
+        Assert.Contains("STARTDATE=\"", xml);
+    }
+
+    [Fact]
+    public void Add_risk_is_clamped_to_scale()
+    {
+        var doc = TestData.Sample();
+        var created = doc.AddTask(new() { Title = "Risky", Risk = 99 });
+        Assert.Equal(10, doc.GetTask(created.Id)!.Risk);
+    }
+
+    [Fact]
     public void Add_under_missing_parent_throws()
     {
         var doc = TestData.Sample();

@@ -9,11 +9,26 @@ public sealed class TodoTask
     public int Id { get; init; }
     public string Title { get; init; } = "";
 
+    /// <summary>
+    /// A caller-defined external reference (the EXTERNALID attribute), e.g. an issue key from
+    /// another system. Null when unset. Not interpreted by ToDoList beyond storage/display.
+    /// </summary>
+    public string? ExternalId { get; init; }
+
     /// <summary>Plain-text notes (the &lt;COMMENTS&gt; child element).</summary>
     public string? Comments { get; init; }
 
     /// <summary>ToDoList priority on its native 0–10 scale; null when unset (-2 in the file).</summary>
     public int? Priority { get; init; }
+
+    /// <summary>ToDoList risk on its native 0–10 scale; null when unset (-2 in the file).</summary>
+    public int? Risk { get; init; }
+
+    /// <summary>Free-text workflow status (the STATUS attribute), e.g. "In Progress"; null when unset.</summary>
+    public string? Status { get; init; }
+
+    /// <summary>True when the task carries the FLAG attribute (ToDoList's star/flag marker).</summary>
+    public bool IsFlagged { get; init; }
 
     public int PercentDone { get; init; }
 
