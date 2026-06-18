@@ -47,7 +47,7 @@ public class UpdateTaskTests
 
         Assert.Null(doc.GetTask(1)!.Comments);
         var xml = doc.ToXmlString();
-        Assert.DoesNotContain("<COMMENTS>", xml);
+        Assert.DoesNotContain("<COMMENTS", xml);   // also catches a self-closing <COMMENTS />
         Assert.DoesNotContain("COMMENTSTYPE=", xml);
     }
 
