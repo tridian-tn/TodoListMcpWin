@@ -63,15 +63,15 @@ pluggable "content control". This server **authors plain text, Markdown, and HTM
 `CommentsFormat`.
 
 When you author Markdown or HTML, the source is stored in `<CUSTOMCOMMENTS>` exactly as ToDoList
-encodes it (base64 of the UTF-16LE source bytes, no BOM), with a plain-text mirror in `<COMMENTS>`
-(ToDoList refreshes that mirror itself on its next save). Rich Text and Spreadsheet stay read-only — their
-payloads are opaque (WordPad RTF / a ReoGrid workbook).
+encodes it (base64 of the UTF-16LE source bytes, no BOM), with a plain-text mirror in `<COMMENTS>`.
+The mirror matches how ToDoList derives it — the rendered text with markup removed (ToDoList uses the
+content control's `innerText`) — and ToDoList refreshes it itself on its next save. Rich Text and
+Spreadsheet stay read-only — their payloads are opaque (WordPad RTF / a ReoGrid workbook).
 
 > [!WARNING]
 > - **Reading a formatted task gives you the flattened plain-text mirror, _not_ the rich source.**
->   Check `CommentsFormat` — anything other than `plain` means the `Comments` text is an
->   approximation of what you'd see in ToDoList (for HTML, tag-stripped; for ToDoList-authored
->   Markdown, the rendered text).
+>   Check `CommentsFormat` — anything other than `plain` means the `Comments` text is the rendered
+>   text with markup removed (HTML tags / Markdown syntax stripped), not what you'd edit in ToDoList.
 > - **Overwriting a task's existing formatted notes is refused by default** — whatever new format
 >   you supply. Pass `replaceFormattedComments: true` to replace them anyway; this **discards
 >   ToDoList's existing rich `<CUSTOMCOMMENTS>` payload**. (Clearing the notes with an empty string is

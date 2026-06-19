@@ -1,5 +1,7 @@
+using System.Text;
 using System.Xml.Linq;
 using TodoListMcp.Core;
+using TodoListMcp.Core.Model;
 
 namespace TodoListMcp.Core.Tests;
 
@@ -94,6 +96,18 @@ public class MultiFormatCommentFileTests
         var source = System.Text.Encoding.Unicode.GetString(todolistBytes);
         var ourBytes = Convert.FromBase64String(CommentFormat.EncodeCustomComments(source));
         Assert.Equal(todolistBytes, ourBytes);
+    }
+
+    [Theory]
+    [InlineData(29, CommentContentFormat.Html)]
+    [InlineData(30, CommentContentFormat.Markdown)]
+    public void Our_plain_mirror_reproduces_real_todolist_output(int id, CommentContentFormat format)
+    {
+        // ToDoList derives <COMMENTS> via MSHTML innerText; assert our renderer matches its actual
+        // output for these real tasks (the source is recovered from the genuine <CUSTOMCOMMENTS>).
+        var source = Encoding.Unicode.GetString(
+            Convert.FromBase64String(CustomCommentsByIdFromFile(TestData.MultiCommentFormatFilePath())[id]));
+        Assert.Equal(Load().GetTask(id)!.Comments, CommentFormat.ToPlainMirror(format, source));
     }
 
     [Fact]

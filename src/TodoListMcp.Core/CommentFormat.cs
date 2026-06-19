@@ -89,24 +89,60 @@ public static class CommentFormat
         Convert.ToBase64String(Encoding.Unicode.GetBytes(source));
 
     /// <summary>
-    /// A best-effort plain-text mirror for the &lt;COMMENTS&gt; element. Markdown source is already
-    /// readable so it is kept as-is; HTML is tag-stripped. ToDoList regenerates this mirror from the
-    /// content control on its next save, so it need only be a reasonable approximation.
+    /// The plain-text mirror for the &lt;COMMENTS&gt; element. ToDoList derives this with MSHTML's
+    /// <c>innerText</c> — directly for HTML, and for Markdown after rendering the source to HTML
+    /// (Markdig). We can't run MSHTML headless, so this reproduces its observed output: rendered text
+    /// with markup removed and blank lines collapsed. It is validated against a real ToDoList export
+    /// (see the multi-format fixture tests) and, in any case, ToDoList regenerates it on its next save.
     /// </summary>
     public static string ToPlainMirror(CommentContentFormat format, string source) => format switch
     {
         CommentContentFormat.Html => StripHtml(source),
+        CommentContentFormat.Markdown => StripMarkdown(source),
         _ => source,
     };
 
     private static string StripHtml(string html)
     {
-        // Turn common block boundaries into newlines, drop the remaining tags, then tidy whitespace.
+        // Turn common block boundaries into newlines, then drop the remaining tags and decode entities.
         var withBreaks = Regex.Replace(html, @"(?i)<\s*(br|/p|/div|/li|/h[1-6]|/tr)\s*/?\s*>", "\n");
         var noTags = Regex.Replace(withBreaks, "<[^>]+>", "");
-        var decoded = System.Net.WebUtility.HtmlDecode(noTags);
-        decoded = Regex.Replace(decoded, @"[ \t]+", " ");
-        var lines = decoded.Split('\n').Select(l => l.Trim());
+        return NormalizeLines(System.Net.WebUtility.HtmlDecode(noTags));
+    }
+
+    private static string StripMarkdown(string markdown)
+    {
+        var s = markdown;
+        s = Regex.Replace(s, @"(?m)^\s*```.*$", "");               // code-fence lines
+        s = Regex.Replace(s, @"!\[([^\]]*)\]\([^)]*\)", "$1");     // images -> alt text
+        s = Regex.Replace(s, @"\[([^\]]*)\]\([^)]*\)", "$1");      // links -> link text
+        s = Regex.Replace(s, @"`([^`]*)`", "$1");                  // inline code
+        s = Regex.Replace(s, @"\*\*(.+?)\*\*", "$1");              // **strong**
+        s = Regex.Replace(s, @"(?<![A-Za-z0-9])__(.+?)__(?![A-Za-z0-9])", "$1");   // __strong__
+        s = Regex.Replace(s, @"~~(.+?)~~", "$1");                  // ~~strikethrough~~
+        s = Regex.Replace(s, @"\*(.+?)\*", "$1");                  // *emphasis*
+        s = Regex.Replace(s, @"(?<![A-Za-z0-9])_(.+?)_(?![A-Za-z0-9])", "$1");     // _emphasis_
+
+        var lines = s.Split('\n').Select(line =>
+        {
+            var t = line.Trim();
+            if (Regex.IsMatch(t, @"^([-*_])\1{2,}$")) return "";   // horizontal rule
+            t = Regex.Replace(t, @"^#{1,6}\s+", "");               // ATX heading marker
+            t = Regex.Replace(t, @"^>\s?", "");                    // blockquote marker
+            t = Regex.Replace(t, @"^([-*+]|\d+\.)\s+", "");        // list-item marker
+            return t;
+        });
+        return NormalizeLines(string.Join("\n", lines));
+    }
+
+    /// <summary>Collapses inline whitespace, drops blank lines, and trims — mirroring how a browser's
+    /// <c>innerText</c> renders block content as single-newline-separated lines.</summary>
+    private static string NormalizeLines(string text)
+    {
+        var lines = text.Replace("\r\n", "\n").Replace('\r', '\n')
+            .Split('\n')
+            .Select(l => Regex.Replace(l, @"[ \t]+", " ").Trim())
+            .Where(l => l.Length > 0);
         return string.Join("\n", lines).Trim();
     }
 }

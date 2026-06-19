@@ -25,18 +25,18 @@ public class CommentAuthoringTests
     // ---- authoring on create -----------------------------------------------------------------
 
     [Fact]
-    public void Authoring_markdown_stores_source_type_and_mirror()
+    public void Authoring_markdown_stores_source_type_and_rendered_mirror()
     {
         var doc = TestData.Sample();
         var source = "Plan:\n\n- **a**\n- _b_";
 
         var t = doc.AddTask(new AddTaskRequest { Title = "N", Comments = source, CommentsFormat = CommentContentFormat.Markdown });
 
-        Assert.Equal("markdown", doc.GetTask(t.Id)!.CommentsFormat);
-        Assert.Equal(source, doc.GetTask(t.Id)!.Comments);            // markdown mirror is the source
-        var xml = doc.ToXmlString();
-        Assert.Contains($"COMMENTSTYPE=\"{MarkdownId}\"", xml);
-        Assert.Equal(source, Decode(CustomComments(doc, t.Id)!));     // payload decodes back to source
+        var read = doc.GetTask(t.Id)!;
+        Assert.Equal("markdown", read.CommentsFormat);
+        Assert.Equal("Plan:\na\nb", read.Comments);                  // mirror is rendered (markup stripped)
+        Assert.Equal(source, Decode(CustomComments(doc, t.Id)!));    // payload decodes back to the source
+        Assert.Contains($"COMMENTSTYPE=\"{MarkdownId}\"", doc.ToXmlString());
     }
 
     [Fact]
