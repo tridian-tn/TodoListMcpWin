@@ -106,7 +106,7 @@ public sealed class TodoTools
             ParentId = parentId,
             Index = index,
             Comments = comments,
-            CommentsFormat = ParseCommentsFormat(commentsFormat),
+            CommentsFormat = comments is null ? CommentContentFormat.Plain : ParseCommentsFormat(commentsFormat),
             Priority = priority,
             Risk = risk,
             PercentDone = percentDone,
@@ -160,7 +160,7 @@ public sealed class TodoTools
         {
             Title = title,
             Comments = comments,
-            CommentsFormat = ParseCommentsFormat(commentsFormat),
+            CommentsFormat = comments is null ? CommentContentFormat.Plain : ParseCommentsFormat(commentsFormat),
             ReplaceFormattedComments = replaceFormattedComments,
             Priority = priority,
             ClearPriority = clearPriority,
