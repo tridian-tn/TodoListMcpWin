@@ -24,12 +24,17 @@ public class ParsingResilienceTests
     }
 
     [Fact]
-    public void Setting_comments_normalises_legacy_attribute_and_rich_text_to_a_plain_element()
+    public void Overwriting_rich_comments_is_refused_without_opt_in_then_normalises_with_it()
     {
         // A task carrying both the legacy COMMENTS attribute and a CUSTOMCOMMENTS rich-text override.
         var doc = Parse("""TITLE="T" COMMENTS="old"><CUSTOMCOMMENTS>{\rtf}</CUSTOMCOMMENTS>""");
 
-        doc.UpdateTask(1, new() { Comments = "clean text" });
+        // Without opt-in the rich payload is protected, not silently flattened.
+        Assert.Throws<FormattedCommentsException>(() => doc.UpdateTask(1, new() { Comments = "clean text" }));
+        Assert.Contains("CUSTOMCOMMENTS", doc.ToXmlString());
+
+        // With opt-in it collapses to a single plain <COMMENTS> element.
+        doc.UpdateTask(1, new() { Comments = "clean text", ReplaceFormattedComments = true });
 
         Assert.Equal("clean text", doc.GetTask(1)!.Comments);
         var xml = doc.ToXmlString();

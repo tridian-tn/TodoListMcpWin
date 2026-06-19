@@ -23,3 +23,23 @@ public sealed class TaskLockedException : Exception
         => TaskId = id;
     public int TaskId { get; }
 }
+
+/// <summary>
+/// Thrown when a caller tries to overwrite a task's formatted (non-plain-text) comments without
+/// opting in. Replacing them would discard the rich &lt;CUSTOMCOMMENTS&gt; payload ToDoList stores
+/// for rich text/HTML/Markdown/spreadsheet notes.
+/// </summary>
+public sealed class FormattedCommentsException : Exception
+{
+    public FormattedCommentsException(int id, string format)
+        : base($"Task with ID {id} has {format} comments. Overwriting them here would discard the "
+             + "formatted content (ToDoList's <CUSTOMCOMMENTS> payload). Pass "
+             + "replaceFormattedComments=true to replace them with plain text, or edit them in the "
+             + "ToDoList app.")
+    {
+        TaskId = id;
+        Format = format;
+    }
+    public int TaskId { get; }
+    public string Format { get; }
+}
