@@ -41,6 +41,9 @@ The engine mirrors how ToDoList actually stores data (verified against a real ex
 - Completion is detected from **`DONEDATE`** (the source of truth). ToDoList's calculated
   **`GOODASDONE`** flag (set by the "treat parents with all subtasks completed as done" option) is
   surfaced read-only as `IsGoodAsDone`, and kept in sync when this server completes/reopens a task.
+- ToDoList's **`LOCK`** (read-only) marker is surfaced read-only as `IsLocked`. The server **refuses
+  to update, complete, reopen, move, or delete a locked task** — including deleting one as part of a
+  parent's subtree — so a lock you set in ToDoList is honoured rather than silently overridden.
 - `POS`/`POSSTRING` are renumbered to match document order on structural edits, using the same scheme
   ToDoList writes in live files (it orders by document order; the stored values are derived).
 - Unknown attributes/elements are **preserved** across a load → modify → save round-trip (mutations
@@ -247,7 +250,9 @@ this entirely. Restart Claude Desktop after editing the file.
 | `delete_task` | Remove a task and its subtree. |
 | `move_task` | Re-parent and/or reorder a task. |
 
-Every tool takes an optional `list` alias; omit it to use the default list.
+Every tool takes an optional `list` alias; omit it to use the default list. Tasks you locked in
+ToDoList (`LOCK="1"`, surfaced as `IsLocked`) are read-only: `update_task`, `complete_task`,
+`reopen_task`, `move_task`, and `delete_task` refuse them with a clear error.
 
 ## Concurrency note
 

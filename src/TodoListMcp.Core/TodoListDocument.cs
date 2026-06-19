@@ -211,6 +211,7 @@ public sealed class TodoListDocument
         Status = TrimToNull((string?)e.Attribute("STATUS")),
         Version = TrimToNull((string?)e.Attribute("VERSION")),
         IsFlagged = (string?)e.Attribute("FLAG") == "1",
+        IsLocked = IsTaskLocked(e),
         PercentDone = (int?)e.Attribute("PERCENTDONE") ?? 0,
         TimeEstimate = ReadTime(e, "TIMEESTIMATE"),
         TimeEstimateUnit = ReadTime(e, "TIMEESTIMATE") is null
@@ -349,6 +350,7 @@ public sealed class TodoListDocument
     public TodoTask UpdateTask(int id, UpdateTaskRequest req)
     {
         var e = FindTaskElement(id) ?? throw new TaskNotFoundException(id);
+        EnsureNotLocked(e);
         var now = _clock.Now;
 
         if (req.Title is not null) e.SetAttributeValue("TITLE", req.Title);
@@ -401,6 +403,7 @@ public sealed class TodoListDocument
     public TodoTask CompleteTask(int id)
     {
         var e = FindTaskElement(id) ?? throw new TaskNotFoundException(id);
+        EnsureNotLocked(e);
         var now = _clock.Now;
         SetOaDate(e, "DONEDATE", now);
         e.SetAttributeValue("DONEDATESTRING", FormatStamp(now));
@@ -415,6 +418,7 @@ public sealed class TodoListDocument
     public TodoTask ReopenTask(int id)
     {
         var e = FindTaskElement(id) ?? throw new TaskNotFoundException(id);
+        EnsureNotLocked(e);
         var now = _clock.Now;
         e.SetAttributeValue("DONEDATE", null);
         e.SetAttributeValue("DONEDATESTRING", null);
@@ -431,6 +435,10 @@ public sealed class TodoListDocument
     {
         var e = FindTaskElement(id);
         if (e is null) return false;
+        // Refuse to destroy a locked task — directly, or as a descendant of the deleted subtree.
+        var locked = IsTaskLocked(e) ? e : e.Descendants("TASK").FirstOrDefault(IsTaskLocked);
+        if (locked is not null)
+            throw new TaskLockedException((int?)locked.Attribute("ID") ?? 0);
         e.Remove();
         Renumber();
         TouchRoot(_clock.Now);
@@ -444,6 +452,7 @@ public sealed class TodoListDocument
     public TodoTask MoveTask(int id, int? newParentId, int? index = null)
     {
         var e = FindTaskElement(id) ?? throw new TaskNotFoundException(id);
+        EnsureNotLocked(e);
         var parent = newParentId is int pid
             ? FindTaskElement(pid) ?? throw new TaskNotFoundException(pid)
             : _root;
@@ -471,6 +480,16 @@ public sealed class TodoListDocument
 
     private XElement? FindTaskElement(int id) =>
         _root.Descendants("TASK").FirstOrDefault(t => (int?)t.Attribute("ID") == id);
+
+    /// <summary>True when a task element is locked (read-only) in ToDoList.</summary>
+    private static bool IsTaskLocked(XElement e) => (string?)e.Attribute("LOCK") == "1";
+
+    /// <summary>Refuses to mutate a task the user has deliberately locked in ToDoList.</summary>
+    private static void EnsureNotLocked(XElement e)
+    {
+        if (IsTaskLocked(e))
+            throw new TaskLockedException((int?)e.Attribute("ID") ?? 0);
+    }
 
     private int AllocateId()
     {

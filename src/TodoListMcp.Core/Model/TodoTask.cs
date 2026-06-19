@@ -33,6 +33,12 @@ public sealed class TodoTask
     /// <summary>True when the task carries the FLAG attribute (ToDoList's star/flag marker).</summary>
     public bool IsFlagged { get; init; }
 
+    /// <summary>
+    /// True when the task is locked in ToDoList (the LOCK attribute), marking it read-only. This
+    /// server refuses to update, complete, reopen, move, or delete a locked task.
+    /// </summary>
+    public bool IsLocked { get; init; }
+
     public int PercentDone { get; init; }
 
     /// <summary>Estimated effort value, in <see cref="TimeEstimateUnit"/>; null when unset (or zero).</summary>
