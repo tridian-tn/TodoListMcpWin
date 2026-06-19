@@ -40,16 +40,15 @@ jobs:
 
     - name: Derive version from tag
       id: version
+      # Only used to name the artifact and zip below. The build version itself is derived from the
+      # tag by MinVer (see Directory.Build.props); the two agree, as MinVer emits X.Y.Z on a tagged
+      # commit. fetch-depth: 0 above gives MinVer the tag it needs.
       shell: bash
       run: |
         TAG="${GITHUB_REF#refs/tags/}"     # e.g. v1.2.3 or v1.2.3-beta.1
         VERSION="${TAG#v}"                 # e.g. 1.2.3 or 1.2.3-beta.1
-        NUMERIC="${VERSION%%[-+]*}"        # e.g. 1.2.3  (strip any -prerelease / +build suffix; File/Assembly versions must be numeric)
-        {
-          echo "version=$VERSION"
-          echo "numeric=$NUMERIC"
-        } >> "$GITHUB_OUTPUT"
-        echo "Building $VERSION (file version $NUMERIC) for ${{ matrix.rid }}"
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "Building $VERSION for ${{ matrix.rid }}"
 
     - name: Publish
       run: >
@@ -57,10 +56,6 @@ jobs:
         -c Release
         -r ${{ matrix.rid }}
         --self-contained false
-        -p:Version=${{ steps.version.outputs.version }}
-        -p:FileVersion=${{ steps.version.outputs.numeric }}
-        -p:AssemblyVersion=${{ steps.version.outputs.numeric }}
-        -p:InformationalVersion=${{ steps.version.outputs.version }}
         -o publish
 
     - name: Package

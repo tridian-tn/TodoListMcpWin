@@ -113,6 +113,24 @@ Alt-Tab), generated from the same drawing, so the two always match. Regenerate t
 TodoListMcp.exe --write-icon src/TodoListMcp.App/Resources/App.ico
 ```
 
+### Versioning
+
+The version is derived from Git on every build by [MinVer](https://github.com/adamralph/minver)
+(configured in `Directory.Build.props`). A commit tagged `vX.Y.Z` builds as exactly `X.Y.Z`; any
+other commit builds as the next patch pre-release with the number of commits since the tag as height
+(e.g. `0.0.3-alpha.0.5`), and the commit hash is appended to the informational version
+(`0.0.3-alpha.0.5+74cab42…`). So tagged release commits carry a clean version and every other build
+identifies its commit. The running build's version is shown in the tray menu under **About TodoList
+MCP…**, and in the file's Product version. To cut a release, tag and push — the
+[release workflow](.github/workflows/release.yml) reads the tag through MinVer:
+
+```bash
+git tag v1.2.3 && git push origin v1.2.3
+```
+
+A source tree with no `.git` directory (e.g. an extracted zip) has no tags to read, so it falls back
+to `0.0.0-alpha.0`.
+
 ## Configure
 
 On first launch the app writes a starter config to:
