@@ -435,10 +435,10 @@ public sealed class TodoListDocument
     {
         var e = FindTaskElement(id);
         if (e is null) return false;
-        // Refuse to destroy a locked task — directly, or as a descendant of the deleted subtree.
-        var locked = IsTaskLocked(e) ? e : e.Descendants("TASK").FirstOrDefault(IsTaskLocked);
-        if (locked is not null)
-            throw new TaskLockedException((int?)locked.Attribute("ID") ?? 0);
+        // Mirror ToDoList: refuse to delete a locked task, or to delete a child out of a locked
+        // parent. A locked descendant does not block deleting an ancestor (bCheckChildren=FALSE).
+        EnsureNotLocked(e);
+        EnsureParentNotLocked(e);
         e.Remove();
         Renumber();
         TouchRoot(_clock.Now);
@@ -452,10 +452,15 @@ public sealed class TodoListDocument
     public TodoTask MoveTask(int id, int? newParentId, int? index = null)
     {
         var e = FindTaskElement(id) ?? throw new TaskNotFoundException(id);
+        // Mirror ToDoList: refuse to move a locked task, to move it out of a locked parent, or
+        // into a locked destination parent. A locked descendant does not block the move.
         EnsureNotLocked(e);
+        EnsureParentNotLocked(e);
         var parent = newParentId is int pid
             ? FindTaskElement(pid) ?? throw new TaskNotFoundException(pid)
             : _root;
+        if (parent != _root)
+            EnsureNotLocked(parent);
 
         if (parent != _root && (parent == e || e.Descendants("TASK").Any(d => d == parent)))
             throw new InvalidOperationException("Cannot move a task into itself or one of its descendants.");
@@ -489,6 +494,18 @@ public sealed class TodoListDocument
     {
         if (IsTaskLocked(e))
             throw new TaskLockedException((int?)e.Attribute("ID") ?? 0);
+    }
+
+    /// <summary>
+    /// Refuses to restructure a task whose immediate parent is locked. ToDoList won't let you move
+    /// or delete a child out of a locked parent (only the immediate parent is checked, matching
+    /// its <c>SelectionHasLockedParent</c>). Editing a child's own attributes stays allowed unless
+    /// the child itself is locked.
+    /// </summary>
+    private static void EnsureParentNotLocked(XElement e)
+    {
+        if (e.Parent is { } parent && parent.Name.LocalName == "TASK" && IsTaskLocked(parent))
+            throw new TaskLockedException((int?)parent.Attribute("ID") ?? 0);
     }
 
     private int AllocateId()

@@ -41,9 +41,11 @@ The engine mirrors how ToDoList actually stores data (verified against a real ex
 - Completion is detected from **`DONEDATE`** (the source of truth). ToDoList's calculated
   **`GOODASDONE`** flag (set by the "treat parents with all subtasks completed as done" option) is
   surfaced read-only as `IsGoodAsDone`, and kept in sync when this server completes/reopens a task.
-- ToDoList's **`LOCK`** (read-only) marker is surfaced read-only as `IsLocked`. The server **refuses
-  to update, complete, reopen, move, or delete a locked task** — including deleting one as part of a
-  parent's subtree — so a lock you set in ToDoList is honoured rather than silently overridden.
+- ToDoList's **`LOCK`** (read-only) marker is surfaced read-only as `IsLocked`, and the server
+  honours it the way ToDoList does: it **refuses to update, complete, reopen, move, or delete a
+  locked task**, refuses to **move or delete a task whose immediate parent is locked**, and refuses
+  to **move a task into a locked parent**. (A locked *descendant* does not block deleting or moving
+  an ancestor, and editing an unlocked child of a locked parent is allowed — mirroring ToDoList.)
 - `POS`/`POSSTRING` are renumbered to match document order on structural edits, using the same scheme
   ToDoList writes in live files (it orders by document order; the stored values are derived).
 - Unknown attributes/elements are **preserved** across a load → modify → save round-trip (mutations
@@ -252,7 +254,9 @@ this entirely. Restart Claude Desktop after editing the file.
 
 Every tool takes an optional `list` alias; omit it to use the default list. Tasks you locked in
 ToDoList (`LOCK="1"`, surfaced as `IsLocked`) are read-only: `update_task`, `complete_task`,
-`reopen_task`, `move_task`, and `delete_task` refuse them with a clear error.
+`reopen_task`, `move_task`, and `delete_task` refuse them with a clear error, and `move_task` /
+`delete_task` also refuse a task whose immediate parent is locked (or, for moves, a locked target
+parent) — matching how ToDoList itself gates these.
 
 ## Concurrency note
 
