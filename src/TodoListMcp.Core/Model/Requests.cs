@@ -67,6 +67,13 @@ public sealed class UpdateTaskRequest
     /// <summary>Null = unchanged; a value (including empty string) replaces the notes.</summary>
     public string? Comments { get; init; }
 
+    /// <summary>
+    /// When false (default), setting <see cref="Comments"/> on a task whose existing notes are
+    /// formatted (rich text/HTML/Markdown/spreadsheet) is refused, to avoid discarding ToDoList's
+    /// rich <c>CUSTOMCOMMENTS</c> payload. Set true to replace them with plain text anyway.
+    /// </summary>
+    public bool ReplaceFormattedComments { get; init; }
+
     /// <summary>Null = unchanged; a value sets priority (0–10, clamped).</summary>
     public int? Priority { get; init; }
 

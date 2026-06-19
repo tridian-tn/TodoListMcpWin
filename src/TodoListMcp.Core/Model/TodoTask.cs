@@ -15,8 +15,19 @@ public sealed class TodoTask
     /// </summary>
     public string? ExternalId { get; init; }
 
-    /// <summary>Plain-text notes (the &lt;COMMENTS&gt; child element).</summary>
+    /// <summary>
+    /// Notes text (the &lt;COMMENTS&gt; child element). For any non-plain format this is ToDoList's
+    /// flattened plain-text mirror of the formatted content; see <see cref="CommentsFormat"/>.
+    /// </summary>
     public string? Comments { get; init; }
+
+    /// <summary>
+    /// The comment format (ToDoList's <c>COMMENTSTYPE</c>) as a friendly name: "plain", "rich",
+    /// "html", "markdown" or "spreadsheet"; the raw id for an unrecognised content control; null
+    /// when the task has no comments. This server only authors "plain" comments — when this is any
+    /// other value, <see cref="Comments"/> is a read-only flattened mirror of the formatted content.
+    /// </summary>
+    public string? CommentsFormat { get; init; }
 
     /// <summary>ToDoList priority on its native 0–10 scale; null when unset (-2 in the file).</summary>
     public int? Priority { get; init; }

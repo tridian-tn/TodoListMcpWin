@@ -26,4 +26,16 @@ internal static class TestData
         Assert.True(File.Exists(path), $"Sample fixture not found at {path}");
         return path;
     }
+
+    /// <summary>
+    /// A real ToDoList 9.1 export with one task per comment format (plain/rich/spreadsheet/HTML/
+    /// markdown), task IDs 26-30. Used to exercise comment-format reading and the overwrite guard
+    /// against genuine COMMENTSTYPE/CUSTOMCOMMENTS payloads.
+    /// </summary>
+    public static string MultiCommentFormatFilePath()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "Assets", "Introduction-MultipleCommentFormats.tdl");
+        Assert.True(File.Exists(path), $"Multi-format fixture not found at {path}");
+        return path;
+    }
 }

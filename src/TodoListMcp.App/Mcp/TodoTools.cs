@@ -128,6 +128,7 @@ public sealed class TodoTools
         [Description("The task ID.")] int id,
         [Description("New title.")] string? title = null,
         [Description("New notes (empty string clears the notes).")] string? comments = null,
+        [Description("Allow replacing formatted (rich text/HTML/Markdown/spreadsheet) notes with plain text. Without this, editing the notes of such a task is refused so ToDoList's rich content isn't discarded.")] bool replaceFormattedComments = false,
         [Description("New priority on the 0-10 scale.")] int? priority = null,
         [Description("Remove the priority entirely.")] bool clearPriority = false,
         [Description("New risk on the 0-10 scale.")] int? risk = null,
@@ -155,6 +156,7 @@ public sealed class TodoTools
         {
             Title = title,
             Comments = comments,
+            ReplaceFormattedComments = replaceFormattedComments,
             Priority = priority,
             ClearPriority = clearPriority,
             Risk = risk,

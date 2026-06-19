@@ -35,7 +35,9 @@ The engine mirrors how ToDoList actually stores data (verified against a real ex
   (a plain decimal in the unit, *not* an OLE serial). Units are single letters: `I` minutes, `H` hours
   (default), `D` days, `K` weekdays, `W` weeks, `M` months, `Y` years. The tools also accept the words.
   The derived `CALC*` rollups are ToDoList's to compute, so they're left untouched and never written.
-- Notes are the **`<COMMENTS>` child element** (`COMMENTSTYPE="PLAIN_TEXT"`), not an attribute.
+- Notes are the **`<COMMENTS>` child element** (not an attribute), with the format in `COMMENTSTYPE`.
+  This server reads tasks in **any** comment format but **authors only plain text** — see
+  [Task comments / notes](#task-comments--notes) for exactly what happens on read and write.
 - Assignees are **`<PERSON>` child elements** (or a single `ALLOCATEDTO` attribute); categories are
   **`<CATEGORY>`** likewise. Root-level pick-lists are *not* mistaken for per-task assignments.
 - Completion is detected from **`DONEDATE`** (the source of truth). ToDoList's calculated
@@ -50,6 +52,37 @@ The engine mirrors how ToDoList actually stores data (verified against a real ex
   ToDoList writes in live files (it orders by document order; the stored values are derived).
 - Unknown attributes/elements are **preserved** across a load → modify → save round-trip (mutations
   edit the loaded XML tree in place rather than regenerating it).
+
+## Task comments / notes
+
+ToDoList stores a task's comments in up to three parts: a plain-text `<COMMENTS>` element (always
+present — it's what search and CSV export use), a `COMMENTSTYPE` format id, and, for non-plain
+formats, an opaque `<CUSTOMCOMMENTS>` payload that holds the actual rich content. The format is a
+pluggable "content control". **This server authors plain text only**; it reports each task's format
+as `CommentsFormat`.
+
+> [!WARNING]
+> - **Reading a formatted task gives you the flattened plain-text mirror, _not_ the rich content.**
+>   Check `CommentsFormat` — anything other than `plain` means the `Comments` text is a read-only
+>   approximation of what you'd see in ToDoList.
+> - **Setting `comments` on a formatted task is refused by default.** Pass
+>   `replaceFormattedComments: true` to overwrite the notes with plain text anyway — this **discards
+>   ToDoList's rich `<CUSTOMCOMMENTS>` payload**. (Clearing the notes with an empty string is gated
+>   the same way.)
+> - Editing a formatted task's **other** fields never touches its comments — the rich payload is
+>   round-tripped untouched.
+
+| Format | `COMMENTSTYPE` | Read | Author (write) | On `update_task` notes |
+| --- | --- | --- | --- | --- |
+| Plain text | `PLAIN_TEXT` | ✅ full | ✅ | Replaced normally. |
+| Rich Text (RTF) | `849CF988-…` | ⚠️ flattened mirror | ❌ | Refused unless `replaceFormattedComments` (then flattened to plain). |
+| HTML | `FE0B6B6E-…` | ⚠️ flattened mirror | ❌ | As above. |
+| Markdown | `BAA4E079-…` | ⚠️ flattened mirror | ❌ | As above. |
+| Spreadsheet | `BBDCAEDF-…` | ⚠️ flattened mirror | ❌ | As above. |
+| Other content control | (its GUID) | ⚠️ flattened mirror; `CommentsFormat` is the raw id | ❌ | As above. |
+
+Authoring HTML and Markdown notes (the text-native formats) is under investigation — see
+[issue #25](https://github.com/tridian-tn/TodoListMcpWin/issues/25).
 
 ## Requirements
 
@@ -247,7 +280,7 @@ this entirely. Restart Claude Desktop after editing the file.
 | `get_task` | One task (and its subtasks) by ID. |
 | `search_tasks` | Filter by text, category, assignee, allocated-by, completion, flag, status, version, external ID, minimum priority/risk, or time estimate/spent range (in hours). |
 | `add_task` | Create a task (title, notes, priority, risk, % done, time estimate/spent, due/start date, status, version, flag, external ID, categories, assignees/allocated-by, parent/index). |
-| `update_task` | Change fields; only supplied parameters are touched (with explicit clear flags). |
+| `update_task` | Change fields; only supplied parameters are touched (with explicit clear flags). Editing the notes of a task with formatted comments needs `replaceFormattedComments` — see [Task comments / notes](#task-comments--notes). |
 | `complete_task` / `reopen_task` | Toggle completion (`DONEDATE` + progress). |
 | `delete_task` | Remove a task and its subtree. |
 | `move_task` | Re-parent and/or reorder a task. |

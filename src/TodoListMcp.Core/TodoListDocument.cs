@@ -206,6 +206,7 @@ public sealed class TodoListDocument
         Title = (string?)e.Attribute("TITLE") ?? "",
         ExternalId = TrimToNull((string?)e.Attribute("EXTERNALID")),
         Comments = ReadComments(e),
+        CommentsFormat = ReadCommentsFormat(e),
         Priority = ReadScale(e, "PRIORITY"),
         Risk = ReadScale(e, "RISK"),
         Status = TrimToNull((string?)e.Attribute("STATUS")),
@@ -240,6 +241,35 @@ public sealed class TodoListDocument
         var child = e.Element("COMMENTS");
         if (child is not null) return child.Value;
         return (string?)e.Attribute("COMMENTS");
+    }
+
+    /// <summary>
+    /// Reads the comment format (COMMENTSTYPE) as a friendly name; "plain" when comments exist
+    /// without an explicit type, and null when the task has no comments at all.
+    /// </summary>
+    private static string? ReadCommentsFormat(XElement e)
+    {
+        var type = (string?)e.Attribute("COMMENTSTYPE");
+        if (!string.IsNullOrWhiteSpace(type)) return CommentFormat.ToFriendly(type);
+        // No explicit type: a rich <CUSTOMCOMMENTS> payload means formatted-but-unknown, not plain
+        // (and HasFormattedComments agrees, so the guard and the reported format stay consistent).
+        if (e.Element("CUSTOMCOMMENTS") is not null) return CommentFormat.Unknown;
+        var hasComments = e.Element("COMMENTS") is not null || e.Attribute("COMMENTS") is not null;
+        return hasComments ? CommentFormat.PlainText : null;
+    }
+
+    /// <summary>
+    /// True when a task carries formatted (non-plain-text) comments — a content-control type other
+    /// than PLAIN_TEXT, or a &lt;CUSTOMCOMMENTS&gt; rich payload. Overwriting these via
+    /// <see cref="SetComments"/> would discard the formatting, so <see cref="UpdateTask"/> refuses
+    /// unless the caller opts in.
+    /// </summary>
+    private static bool HasFormattedComments(XElement e)
+    {
+        if (e.Element("CUSTOMCOMMENTS") is not null) return true;
+        var type = (string?)e.Attribute("COMMENTSTYPE");
+        return !string.IsNullOrWhiteSpace(type)
+            && !string.Equals(type.Trim(), "PLAIN_TEXT", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Reads a 0–10 scale attribute (PRIORITY/RISK); ToDoList's -2 "unset" maps to null.</summary>
@@ -351,6 +381,14 @@ public sealed class TodoListDocument
     {
         var e = FindTaskElement(id) ?? throw new TaskNotFoundException(id);
         EnsureNotLocked(e);
+        // Validate the formatted-comments guard up front, before any mutation, so a refused
+        // update never leaves the document partially changed (mirrors EnsureNotLocked).
+        if (req.Comments is not null && !req.ReplaceFormattedComments && HasFormattedComments(e))
+        {
+            var fmt = ReadCommentsFormat(e);
+            throw new FormattedCommentsException(
+                id, string.IsNullOrEmpty(fmt) || fmt == CommentFormat.PlainText ? "formatted" : fmt);
+        }
         var now = _clock.Now;
 
         if (req.Title is not null) e.SetAttributeValue("TITLE", req.Title);
