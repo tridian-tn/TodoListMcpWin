@@ -49,13 +49,14 @@ public class MultiFormatCommentFileTests
     {
         var doc = Load();
         var formatBefore = doc.GetTask(id)!.CommentsFormat;
+        var payloadBefore = CustomCommentsByIdFromXml(doc.ToXmlString())[id];
 
         var ex = Assert.Throws<FormattedCommentsException>(() => doc.UpdateTask(id, new() { Comments = "replaced" }));
 
         Assert.Equal(id, ex.TaskId);
-        // The refusal happens before any mutation: format and payload are untouched.
+        // The refusal happens before any mutation: *this task's* format and payload are untouched.
         Assert.Equal(formatBefore, doc.GetTask(id)!.CommentsFormat);
-        Assert.Contains("<CUSTOMCOMMENTS>", doc.ToXmlString());
+        Assert.Equal(payloadBefore, CustomCommentsByIdFromXml(doc.ToXmlString())[id]);
     }
 
     [Fact]

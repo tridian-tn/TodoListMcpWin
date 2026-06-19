@@ -62,6 +62,16 @@ public class CommentFormatTests
         Assert.Equal("plain", doc.GetTask(1)!.CommentsFormat);
     }
 
+    [Fact]
+    public void Custom_payload_without_type_reports_unknown_not_plain()
+    {
+        // A rich payload with no COMMENTSTYPE is formatted-but-unknown, not plain — and must agree
+        // with the overwrite guard (which refuses it because <CUSTOMCOMMENTS> is present).
+        var doc = Parse("""TITLE="T" COMMENTS="mirror"><CUSTOMCOMMENTS>{\rtf}</CUSTOMCOMMENTS>""");
+        Assert.Equal("unknown", doc.GetTask(1)!.CommentsFormat);
+        Assert.Throws<FormattedCommentsException>(() => doc.UpdateTask(1, new() { Comments = "x" }));
+    }
+
     // ---- Part 1: overwrite guard ------------------------------------------------------------
 
     [Fact]

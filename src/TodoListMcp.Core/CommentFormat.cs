@@ -23,6 +23,13 @@ public static class CommentFormat
     /// <summary>Friendly name for the Spreadsheet content control.</summary>
     public const string Spreadsheet = "spreadsheet";
 
+    /// <summary>
+    /// Friendly name for comments that carry a rich &lt;CUSTOMCOMMENTS&gt; payload but no recorded
+    /// COMMENTSTYPE — formatted, but the specific format is not known. The plain-text mirror is not
+    /// authoritative for these.
+    /// </summary>
+    public const string Unknown = "unknown";
+
     // ToDoList COMMENTSTYPE attribute values (uppercase, as ToDoList writes them).
     private const string PlainTextId = "PLAIN_TEXT";
     private const string RichId = "849CF988-79FE-418A-A40D-01FE3AFCAB2C";

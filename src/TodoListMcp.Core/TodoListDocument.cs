@@ -251,6 +251,9 @@ public sealed class TodoListDocument
     {
         var type = (string?)e.Attribute("COMMENTSTYPE");
         if (!string.IsNullOrWhiteSpace(type)) return CommentFormat.ToFriendly(type);
+        // No explicit type: a rich <CUSTOMCOMMENTS> payload means formatted-but-unknown, not plain
+        // (and HasFormattedComments agrees, so the guard and the reported format stay consistent).
+        if (e.Element("CUSTOMCOMMENTS") is not null) return CommentFormat.Unknown;
         var hasComments = e.Element("COMMENTS") is not null || e.Attribute("COMMENTS") is not null;
         return hasComments ? CommentFormat.PlainText : null;
     }
