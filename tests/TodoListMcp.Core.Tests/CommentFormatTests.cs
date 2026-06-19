@@ -79,6 +79,19 @@ public class CommentFormatTests
     }
 
     [Fact]
+    public void Refused_overwrite_leaves_other_fields_unchanged()
+    {
+        var doc = Parse($"""TITLE="Original" COMMENTSTYPE="{HtmlId}"><COMMENTS>mirror</COMMENTS><CUSTOMCOMMENTS>blob</CUSTOMCOMMENTS>""");
+
+        // A request mixing a title change with a (refused) comment overwrite must not mutate the
+        // title before throwing — the whole update is rejected atomically.
+        Assert.Throws<FormattedCommentsException>(
+            () => doc.UpdateTask(1, new() { Title = "Renamed", Comments = "new" }));
+
+        Assert.Equal("Original", doc.GetTask(1)!.Title);
+    }
+
+    [Fact]
     public void Clearing_formatted_comments_without_opt_in_throws()
     {
         var doc = Parse($"""TITLE="T" COMMENTSTYPE="{MarkdownId}"><COMMENTS>md mirror</COMMENTS><CUSTOMCOMMENTS>md blob</CUSTOMCOMMENTS>""");

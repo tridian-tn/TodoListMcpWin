@@ -378,19 +378,18 @@ public sealed class TodoListDocument
     {
         var e = FindTaskElement(id) ?? throw new TaskNotFoundException(id);
         EnsureNotLocked(e);
+        // Validate the formatted-comments guard up front, before any mutation, so a refused
+        // update never leaves the document partially changed (mirrors EnsureNotLocked).
+        if (req.Comments is not null && !req.ReplaceFormattedComments && HasFormattedComments(e))
+        {
+            var fmt = ReadCommentsFormat(e);
+            throw new FormattedCommentsException(
+                id, string.IsNullOrEmpty(fmt) || fmt == CommentFormat.PlainText ? "formatted" : fmt);
+        }
         var now = _clock.Now;
 
         if (req.Title is not null) e.SetAttributeValue("TITLE", req.Title);
-        if (req.Comments is not null)
-        {
-            if (!req.ReplaceFormattedComments && HasFormattedComments(e))
-            {
-                var fmt = ReadCommentsFormat(e);
-                throw new FormattedCommentsException(
-                    id, string.IsNullOrEmpty(fmt) || fmt == CommentFormat.PlainText ? "formatted" : fmt);
-            }
-            SetComments(e, req.Comments);
-        }
+        if (req.Comments is not null) SetComments(e, req.Comments);
         if (req.ExternalId is not null) SetExternalId(e, req.ExternalId);
         if (req.Status is not null) SetStatus(e, req.Status);
         if (req.Version is not null) SetVersion(e, req.Version);
