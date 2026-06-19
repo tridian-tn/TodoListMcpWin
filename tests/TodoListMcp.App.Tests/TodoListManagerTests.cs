@@ -50,6 +50,14 @@ public class TodoListManagerTests
     }
 
     [Fact]
+    public void Resolve_matches_alias_ignoring_surrounding_whitespace()
+    {
+        // A padded alias passes validation (it trims), so it must also be resolvable.
+        var manager = Manager(new TodoFileEntry { Alias = "work ", Path = @"C:\lists\work.tdl" });
+        Assert.Equal("work ", manager.Resolve("work").Alias);
+    }
+
+    [Fact]
     public void Resolve_unknown_alias_throws_and_lists_available()
     {
         var manager = Manager(Entry("work"), Entry("home"));

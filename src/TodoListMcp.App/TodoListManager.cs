@@ -41,7 +41,10 @@ public sealed class TodoListManager
                 $"Multiple lists are configured; specify 'list'. Available: {Aliases(files)}.");
         }
 
-        return files.FirstOrDefault(f => string.Equals(f.Alias, alias, StringComparison.OrdinalIgnoreCase))
+        // Match on trimmed aliases so a validated config (ValidateConfig trims too) is always
+        // resolvable, even if an entry or the caller carries stray surrounding whitespace.
+        var needle = alias.Trim();
+        return files.FirstOrDefault(f => string.Equals(f.Alias.Trim(), needle, StringComparison.OrdinalIgnoreCase))
             ?? throw new InvalidOperationException($"Unknown list '{alias}'. Available: {Aliases(files)}.");
     }
 
