@@ -7,101 +7,6 @@ endpoint. It can serve any number of `.tdl` files listed in a configuration file
 The tray app - rather than a stdio MCP server - is a persistent host you
 start once and leave running, with a visible status icon and quick access to its config and logs.
 
-## Solution layout
-
-| Project | Target | Role |
-| --- | --- | --- |
-| `src/TodoListMcp.Core` | `net10.0` | Format-faithful `.tdl` read/write engine. No Windows/UI dependencies, so it is fully unit-testable. |
-| `src/TodoListMcp.App` | `net10.0-windows` | WinForms tray icon + ASP.NET Core host running the MCP server, plus the MCP tool surface. |
-| `tests/TodoListMcp.Core.Tests` | `net10.0` | xUnit suite covering the TDL operations, including a round-trip against a real ToDoList file. |
-| `tests/TodoListMcp.App.Tests` | `net10.0-windows` | xUnit suite covering the App layer's list-alias resolution (default, single-file, ambiguous, unknown, and empty-config paths). |
-
-### Why a separate Core library
-
-All `.tdl` correctness lives in `TodoListMcp.Core` with **no** UI or hosting dependencies. That keeps
-the format logic unit-testable in isolation and means the tray/host layer is a thin adapter.
-
-## ToDoList format fidelity
-
-The engine mirrors how ToDoList actually stores data (verified against a real export, FILEFORMAT 12):
-
-- **UTF-16 (LE, with BOM)** on save, declaring `encoding="utf-16"`.
-- Dates are **OLE-automation serials** (`DateTime.FromOADate` / `ToOADate`).
-- **`PRIORITY` and `RISK` are the native 0-10 scales** (`-2` = none), with no lossy bucketing.
-- **`STATUS`, `VERSION`, `EXTERNALID`, `ALLOCATEDBY`** (free text), the **`FLAG`** marker, and
-  **`STARTDATE`** are read and written alongside due date: single-value attributes mirroring how
-  ToDoList stores them.
-- **Effort** is a value + unit pair: `TIMEESTIMATE`/`TIMEESTUNITS` and `TIMESPENT`/`TIMESPENTUNITS`
-  (a plain decimal in the unit, *not* an OLE serial). Units are single letters: `I` minutes, `H` hours
-  (default), `D` days, `K` weekdays, `W` weeks, `M` months, `Y` years. The tools also accept the words.
-  The derived `CALC*` rollups are ToDoList's to compute, so they're left untouched and never written.
-- Notes are the **`<COMMENTS>` child element** (not an attribute), with the format in `COMMENTSTYPE`.
-  This server reads tasks in **any** comment format and **authors plain text, Markdown and HTML**;
-  Markdown/HTML also expose their editable source for lossless round-trips — see
-  [Task comments / notes](#task-comments--notes) for exactly what happens on read and write.
-- Assignees are **`<PERSON>` child elements** (or a single `ALLOCATEDTO` attribute); categories are
-  **`<CATEGORY>`** likewise. Root-level pick-lists are *not* mistaken for per-task assignments.
-- Completion is detected from **`DONEDATE`** (the source of truth). ToDoList's calculated
-  **`GOODASDONE`** flag (set by the "treat parents with all subtasks completed as done" option) is
-  surfaced read-only as `IsGoodAsDone`, and kept in sync when this server completes/reopens a task.
-- ToDoList's **`LOCK`** (read-only) marker is surfaced read-only as `IsLocked`, and the server
-  honours it the way ToDoList does: it **refuses to update, complete, reopen, move, or delete a
-  locked task**, refuses to **move or delete a task whose immediate parent is locked**, and refuses
-  to **move a task into a locked parent**. (A locked *descendant* does not block deleting or moving
-  an ancestor, and editing an unlocked child of a locked parent is allowed — mirroring ToDoList.)
-- `POS`/`POSSTRING` are renumbered to match document order on structural edits, using the same scheme
-  ToDoList writes in live files (it orders by document order; the stored values are derived).
-- Unknown attributes/elements are **preserved** across a load → modify → save round-trip (mutations
-  edit the loaded XML tree in place rather than regenerating it).
-
-## Task comments / notes
-
-ToDoList stores a task's comments in up to three parts: a plain-text `<COMMENTS>` element (always
-present — it's what search and CSV export use), a `COMMENTSTYPE` format id, and, for non-plain
-formats, an opaque `<CUSTOMCOMMENTS>` payload that holds the actual rich content. The format is a
-pluggable "content control". This server **authors plain text, Markdown, and HTML** (pass
-`commentsFormat` to `add_task`/`update_task`) and reports each task's format on read as
-`CommentsFormat`.
-
-When you author Markdown or HTML, the source is stored in `<CUSTOMCOMMENTS>` exactly as ToDoList
-encodes it (base64 of the UTF-16LE source bytes, no BOM), with a plain-text mirror in `<COMMENTS>`.
-The mirror matches how ToDoList derives it — the rendered text with markup removed (ToDoList uses the
-content control's `innerText`) — and ToDoList refreshes it itself on its next save. On read, that same
-source is decoded back into **`CommentsSource`** for Markdown and HTML, so a read → edit → write
-round-trip is lossless; `Comments` stays the flattened mirror (what search and display use). Rich Text
-and Spreadsheet stay read-only — their payloads are opaque (WordPad RTF / a ReoGrid workbook), so they
-expose only the mirror and `CommentsSource` is null.
-
-> [!WARNING]
-> - **`Comments` is always the flattened plain-text mirror, _not_ the rich source** — the rendered
->   text with markup removed (HTML tags / Markdown syntax stripped). For **Markdown and HTML** the
->   editable source is recovered into **`CommentsSource`** (use that to round-trip an edit). For
->   **Rich Text and Spreadsheet** the payload is opaque, so `CommentsSource` is null and the mirror is
->   all you get. Check `CommentsFormat` to tell which you're holding.
-> - **Overwriting a task's existing formatted notes is refused by default** — whatever new format
->   you supply. Pass `replaceFormattedComments: true` to replace them anyway; this **discards
->   ToDoList's existing rich `<CUSTOMCOMMENTS>` payload**. (Clearing the notes with an empty string is
->   gated the same way.)
-> - Editing a formatted task's **other** fields never touches its comments — the rich payload is
->   round-tripped untouched.
-
-To edit a Markdown or HTML task without losing its formatting, read `CommentsSource`, change it, and
-write it back in the same format — opting past the overwrite guard:
-
-```
-get_task(id) → { CommentsFormat: "markdown", CommentsSource: "# Plan\n\n- **a**" , Comments: "Plan\na" }
-update_task(id, comments: editedSource, commentsFormat: "markdown", replaceFormattedComments: true)
-```
-
-| Format | `COMMENTSTYPE` | Read | Author (`commentsFormat`) | On `update_task` notes |
-| --- | --- | --- | --- | --- |
-| Plain text | `PLAIN_TEXT` | ✅ full (`Comments`) | ✅ `plain` (default) | Replaced normally. |
-| Markdown | `BAA4E079-…` | ✅ full source in `CommentsSource` (+ mirror in `Comments`) | ✅ `markdown` | Refused unless `replaceFormattedComments`. |
-| HTML | `FE0B6B6E-…` | ✅ full source in `CommentsSource` (+ mirror in `Comments`) | ✅ `html` | Refused unless `replaceFormattedComments`. |
-| Rich Text (RTF) | `849CF988-…` | ⚠️ flattened mirror only | ❌ | Refused unless `replaceFormattedComments` (then replaced in the format you give). |
-| Spreadsheet | `BBDCAEDF-…` | ⚠️ flattened mirror only | ❌ | As above. |
-| Other content control | (its GUID) | ⚠️ flattened mirror only; `CommentsFormat` is the raw id | ❌ | As above. |
-
 ## Requirements
 
 - Windows 10/11
@@ -111,39 +16,42 @@ update_task(id, comments: editedSource, commentsFormat: "markdown", replaceForma
   Runtime" and "ASP.NET Core Runtime" installers on that download page.
 - **To build from source**: the .NET SDK 10 (it includes both runtimes).
 
-## Build & test
+## Install and run (from a release)
 
-```bash
-dotnet build
-dotnet test
-```
+No build tools or development experience needed — install two free Microsoft runtimes, then download
+and unzip the app.
 
-The app icon (a white check mark on a blue rounded square) is drawn in code by `TrayIconFactory`,
-which is the single source of truth. The tray icon is rendered from that code at runtime; the
-committed `src/TodoListMcp.App/Resources/App.ico` is the **executable** icon (Explorer, taskbar,
-Alt-Tab), generated from the same drawing, so the two always match. Regenerate the asset with:
+1. **Install the .NET 10 runtimes.** From the [.NET 10 download page](https://dotnet.microsoft.com/download/dotnet/10.0),
+   download and run **both** installers (they're free, and on the same page):
+   - the **.NET Desktop Runtime** installer, and
+   - the **ASP.NET Core Runtime** installer (the app hosts its MCP server over this).
 
-```bash
-TodoListMcp.exe --write-icon src/TodoListMcp.App/Resources/App.ico
-```
+   Pick the **x64** installer for a normal PC, or **Arm64** for an ARM device. You only do this once.
 
-### Versioning
+2. **Download the app.** Open the latest release on the
+   [Releases page](https://github.com/tridian-tn/TodoListMcpWin/releases) and download the zip for
+   your CPU:
+   - `TodoListMcp-<version>-win-x64.zip` — most PCs (Intel/AMD).
+   - `TodoListMcp-<version>-win-arm64.zip` — ARM devices (e.g. Snapdragon / Surface Pro X).
 
-The version is derived from Git on every build by [MinVer](https://github.com/adamralph/minver)
-(configured in `Directory.Build.props`). A commit tagged `vX.Y.Z` builds as exactly `X.Y.Z`; any
-other commit builds as the next patch pre-release with the number of commits since the tag as height
-(e.g. `0.0.3-alpha.0.5`), and the commit hash is appended to the informational version
-(`0.0.3-alpha.0.5+74cab42…`). So tagged release commits carry a clean version and every other build
-identifies its commit. The running build's version is shown in the tray menu under **About TodoList
-MCP…**, and in the file's Product version. To cut a release, tag and push — the
-[release workflow](.github/workflows/release.yml) reads the tag through MinVer:
+   Not sure which? It's likely to be **x64**.
 
-```bash
-git tag v1.2.3 && git push origin v1.2.3
-```
+3. **Extract and run.** Unzip it to a folder you'll keep (e.g. `C:\Tools\TodoListMcp` — the app runs
+   from wherever you put it), then double-click **`TodoListMcp.exe`**. A check-mark icon appears in
+   the system tray (bottom-right, near the clock).
+   - Windows SmartScreen may warn that the publisher is unknown (the release isn't code-signed).
+     Click **More info → Run anyway**.
 
-A source tree with no `.git` directory (e.g. an extracted zip) has no tags to read, so it falls back
-to `0.0.0-alpha.0`.
+4. **Point it at your lists.** On first launch the app writes a starter config. Right-click the tray
+   icon → **Open configuration…**, add your `.tdl` files, and save. The file list is picked up live —
+   no restart needed. See [Configure](#configure) for the exact format.
+
+5. **Connect Claude.** Follow [Connect Claude](#connect-claude) for Claude Code or Claude Desktop.
+
+Optional: right-click the tray icon → **Start with Windows** so it launches automatically at logon —
+see [Using the tray app](#using-the-tray-app).
+
+> Prefer to build it yourself? See [Building from source](#building-from-source) at the end.
 
 ## Configure
 
@@ -172,6 +80,11 @@ startup, so changing those needs an app restart.
 }
 ```
 
+> [!IMPORTANT]
+> This is a JSON file, so each backslash in a Windows path must be **doubled**: write
+> `D:\\Lists\\work.tdl`, not `D:\Lists\work.tdl`. (A single forward slash, `D:/Lists/work.tdl`, also
+> works if you prefer.)
+
 - **Alias**: the short name tool callers pass as `list`. Omit `list` in a call to use the `Default`
   file (or the only file, if just one is configured). Each alias must be unique and at most one file
   may be `Default`; the server refuses to act on ambiguous config rather than guess which file you meant.
@@ -197,32 +110,6 @@ you enable it (`"UseHttps": true`), on first run the app:
 If you skipped the prompt, re-run it any time from the tray: **Trust HTTPS certificate (for Claude)…**.
 Node-based clients (Claude Code, and the `mcp-remote` bridge) need one extra setting to honour that
 certificate; see [Connect Claude](#connect-claude).
-
-## Run
-
-```bash
-dotnet run --project src/TodoListMcp.App
-```
-
-A tray icon appears. Right-click for: server URL, the configured lists, copy URL, open
-configuration, open log folder, **Start with Windows**, and exit, plus trust HTTPS certificate when
-HTTPS is enabled. Logs roll daily under `%APPDATA%\TodoListMcp\logs`.
-
-### Single instance
-
-Only one copy runs per logged-in user (enforced with a session-local named mutex). Launching it
-again just points you at the existing tray icon and exits.
-
-### Start with Windows (run at logon)
-
-Toggle **Start with Windows** in the tray menu. It adds/removes a per-user entry under
-`HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (no administrator rights needed; affects only
-your logon). The same can be scripted without opening the UI:
-
-```bash
-TodoListMcp.exe --enable-autostart
-TodoListMcp.exe --disable-autostart
-```
 
 ## Connect Claude
 
@@ -305,7 +192,37 @@ Code** applies if you point it at an `https://` URL: keep `TrustCertificate` on 
 `NODE_OPTIONS=--use-system-ca` before launching Claude Desktop. Using the `http://` URL above skips
 this entirely. Restart Claude Desktop after editing the file.
 
+> [!NOTE]
+> The Claude Desktop / `mcp-remote` route above is **untested** — it's the expected setup based on how
+> `mcp-remote` bridges a local server, not something that's been verified end to end here. The Claude
+> Code path is the tested one. If you try it, feedback is welcome.
+
 [mcp-remote]: https://www.npmjs.com/package/mcp-remote
+
+## Using the tray app
+
+Launch it by double-clicking **`TodoListMcp.exe`**. (Running from a source checkout instead? See
+[Building from source](#building-from-source).)
+
+A tray icon appears. Right-click for: server URL, the configured lists, copy URL, open
+configuration, open log folder, **Start with Windows**, and exit, plus trust HTTPS certificate when
+HTTPS is enabled. Logs roll daily under `%APPDATA%\TodoListMcp\logs`.
+
+### Single instance
+
+Only one copy runs per logged-in user (enforced with a session-local named mutex). Launching it
+again just points you at the existing tray icon and exits.
+
+### Start with Windows (run at logon)
+
+Toggle **Start with Windows** in the tray menu. It adds/removes a per-user entry under
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (no administrator rights needed; affects only
+your logon). The same can be scripted without opening the UI:
+
+```bash
+TodoListMcp.exe --enable-autostart
+TodoListMcp.exe --disable-autostart
+```
 
 ## Tools
 
@@ -327,6 +244,54 @@ ToDoList (`LOCK="1"`, surfaced as `IsLocked`) are read-only: `update_task`, `com
 `delete_task` also refuse a task whose immediate parent is locked (or, for moves, a locked target
 parent) — matching how ToDoList itself gates these.
 
+## Task comments / notes
+
+ToDoList stores a task's comments in up to three parts: a plain-text `<COMMENTS>` element (always
+present — it's what search and CSV export use), a `COMMENTSTYPE` format id, and, for non-plain
+formats, an opaque `<CUSTOMCOMMENTS>` payload that holds the actual rich content. The format is a
+pluggable "content control". This server **authors plain text, Markdown, and HTML** (pass
+`commentsFormat` to `add_task`/`update_task`) and reports each task's format on read as
+`CommentsFormat`.
+
+When you author Markdown or HTML, the source is stored in `<CUSTOMCOMMENTS>` exactly as ToDoList
+encodes it (base64 of the UTF-16LE source bytes, no BOM), with a plain-text mirror in `<COMMENTS>`.
+The mirror matches how ToDoList derives it — the rendered text with markup removed (ToDoList uses the
+content control's `innerText`) — and ToDoList refreshes it itself on its next save. On read, that same
+source is decoded back into **`CommentsSource`** for Markdown and HTML, so a read → edit → write
+round-trip is lossless; `Comments` stays the flattened mirror (what search and display use). Rich Text
+and Spreadsheet stay read-only — their payloads are opaque (WordPad RTF / a ReoGrid workbook), so they
+expose only the mirror and `CommentsSource` is null.
+
+> [!WARNING]
+> - **`Comments` is always the flattened plain-text mirror, _not_ the rich source** — the rendered
+>   text with markup removed (HTML tags / Markdown syntax stripped). For **Markdown and HTML** the
+>   editable source is recovered into **`CommentsSource`** (use that to round-trip an edit). For
+>   **Rich Text and Spreadsheet** the payload is opaque, so `CommentsSource` is null and the mirror is
+>   all you get. Check `CommentsFormat` to tell which you're holding.
+> - **Overwriting a task's existing formatted notes is refused by default** — whatever new format
+>   you supply. Pass `replaceFormattedComments: true` to replace them anyway; this **discards
+>   ToDoList's existing rich `<CUSTOMCOMMENTS>` payload**. (Clearing the notes with an empty string is
+>   gated the same way.)
+> - Editing a formatted task's **other** fields never touches its comments — the rich payload is
+>   round-tripped untouched.
+
+To edit a Markdown or HTML task without losing its formatting, read `CommentsSource`, change it, and
+write it back in the same format — opting past the overwrite guard:
+
+```
+get_task(id) → { CommentsFormat: "markdown", CommentsSource: "# Plan\n\n- **a**" , Comments: "Plan\na" }
+update_task(id, comments: editedSource, commentsFormat: "markdown", replaceFormattedComments: true)
+```
+
+| Format | `COMMENTSTYPE` | Read | Author (`commentsFormat`) | On `update_task` notes |
+| --- | --- | --- | --- | --- |
+| Plain text | `PLAIN_TEXT` | ✅ full (`Comments`) | ✅ `plain` (default) | Replaced normally. |
+| Markdown | `BAA4E079-…` | ✅ full source in `CommentsSource` (+ mirror in `Comments`) | ✅ `markdown` | Refused unless `replaceFormattedComments`. |
+| HTML | `FE0B6B6E-…` | ✅ full source in `CommentsSource` (+ mirror in `Comments`) | ✅ `html` | Refused unless `replaceFormattedComments`. |
+| Rich Text (RTF) | `849CF988-…` | ⚠️ flattened mirror only | ❌ | Refused unless `replaceFormattedComments` (then replaced in the format you give). |
+| Spreadsheet | `BBDCAEDF-…` | ⚠️ flattened mirror only | ❌ | As above. |
+| Other content control | (its GUID) | ⚠️ flattened mirror only; `CommentsFormat` is the raw id | ❌ | As above. |
+
 ## Concurrency note
 
 Each operation loads the file fresh and writes atomically (temp file + replace), with a per-file
@@ -334,3 +299,98 @@ lock. **ToDoList loads a file into memory and rewrites the whole thing when it s
 not see external edits made while it has the file open, and may overwrite them on its next save.
 Edit a given `.tdl` from this server only while ToDoList does not have that file open (or reload it
 in ToDoList afterwards).
+
+---
+
+The rest of this document covers the internals and building from source — you don't need any of it to
+install and use the app.
+
+## Building from source
+
+```bash
+dotnet build
+dotnet test
+```
+
+Run it straight from the checkout (no need to publish a release first):
+
+```bash
+dotnet run --project src/TodoListMcp.App
+```
+
+The tray icon appears just as it does for a release build; see [Using the tray app](#using-the-tray-app)
+for what the menu offers.
+
+The app icon (a white check mark on a blue rounded square) is drawn in code by `TrayIconFactory`,
+which is the single source of truth. The tray icon is rendered from that code at runtime; the
+committed `src/TodoListMcp.App/Resources/App.ico` is the **executable** icon (Explorer, taskbar,
+Alt-Tab), generated from the same drawing, so the two always match. Regenerate the asset with:
+
+```bash
+TodoListMcp.exe --write-icon src/TodoListMcp.App/Resources/App.ico
+```
+
+### Versioning
+
+The version is derived from Git on every build by [MinVer](https://github.com/adamralph/minver)
+(configured in `Directory.Build.props`). A commit tagged `vX.Y.Z` builds as exactly `X.Y.Z`; any
+other commit builds as the next patch pre-release with the number of commits since the tag as height
+(e.g. `0.0.3-alpha.0.5`), and the commit hash is appended to the informational version
+(`0.0.3-alpha.0.5+74cab42…`). So tagged release commits carry a clean version and every other build
+identifies its commit. The running build's version is shown in the tray menu under **About TodoList
+MCP…**, and in the file's Product version. To cut a release, tag and push — the
+[release workflow](.github/workflows/release.yml) reads the tag through MinVer:
+
+```bash
+git tag v1.2.3 && git push origin v1.2.3
+```
+
+A source tree with no `.git` directory (e.g. an extracted zip) has no tags to read, so it falls back
+to `0.0.0-alpha.0`.
+
+## Solution layout
+
+| Project | Target | Role |
+| --- | --- | --- |
+| `src/TodoListMcp.Core` | `net10.0` | Format-faithful `.tdl` read/write engine. No Windows/UI dependencies, so it is fully unit-testable. |
+| `src/TodoListMcp.App` | `net10.0-windows` | WinForms tray icon + ASP.NET Core host running the MCP server, plus the MCP tool surface. |
+| `tests/TodoListMcp.Core.Tests` | `net10.0` | xUnit suite covering the TDL operations, including a round-trip against a real ToDoList file. |
+| `tests/TodoListMcp.App.Tests` | `net10.0-windows` | xUnit suite covering the App layer's list-alias resolution (default, single-file, ambiguous, unknown, and empty-config paths). |
+
+### Why a separate Core library
+
+All `.tdl` correctness lives in `TodoListMcp.Core` with **no** UI or hosting dependencies. That keeps
+the format logic unit-testable in isolation and means the tray/host layer is a thin adapter.
+
+## ToDoList format fidelity
+
+The engine mirrors how ToDoList actually stores data (verified against a real export, FILEFORMAT 12):
+
+- **UTF-16 (LE, with BOM)** on save, declaring `encoding="utf-16"`.
+- Dates are **OLE-automation serials** (`DateTime.FromOADate` / `ToOADate`).
+- **`PRIORITY` and `RISK` are the native 0-10 scales** (`-2` = none), with no lossy bucketing.
+- **`STATUS`, `VERSION`, `EXTERNALID`, `ALLOCATEDBY`** (free text), the **`FLAG`** marker, and
+  **`STARTDATE`** are read and written alongside due date: single-value attributes mirroring how
+  ToDoList stores them.
+- **Effort** is a value + unit pair: `TIMEESTIMATE`/`TIMEESTUNITS` and `TIMESPENT`/`TIMESPENTUNITS`
+  (a plain decimal in the unit, *not* an OLE serial). Units are single letters: `I` minutes, `H` hours
+  (default), `D` days, `K` weekdays, `W` weeks, `M` months, `Y` years. The tools also accept the words.
+  The derived `CALC*` rollups are ToDoList's to compute, so they're left untouched and never written.
+- Notes are the **`<COMMENTS>` child element** (not an attribute), with the format in `COMMENTSTYPE`.
+  This server reads tasks in **any** comment format and **authors plain text, Markdown and HTML**;
+  Markdown/HTML also expose their editable source for lossless round-trips — see
+  [Task comments / notes](#task-comments--notes) for exactly what happens on read and write.
+- Assignees are **`<PERSON>` child elements** (or a single `ALLOCATEDTO` attribute); categories are
+  **`<CATEGORY>`** likewise. Root-level pick-lists are *not* mistaken for per-task assignments.
+- Completion is detected from **`DONEDATE`** (the source of truth). ToDoList's calculated
+  **`GOODASDONE`** flag (set by the "treat parents with all subtasks completed as done" option) is
+  surfaced read-only as `IsGoodAsDone`, and kept in sync when this server completes/reopens a task.
+- ToDoList's **`LOCK`** (read-only) marker is surfaced read-only as `IsLocked`, and the server
+  honours it the way ToDoList does: it **refuses to update, complete, reopen, move, or delete a
+  locked task**, refuses to **move or delete a task whose immediate parent is locked**, and refuses
+  to **move a task into a locked parent**. (A locked *descendant* does not block deleting or moving
+  an ancestor, and editing an unlocked child of a locked parent is allowed — mirroring ToDoList.)
+- `POS`/`POSSTRING` are renumbered to match document order on structural edits, using the same scheme
+  ToDoList writes in live files (it orders by document order; the stored values are derived).
+- Unknown attributes/elements are **preserved** across a load → modify → save round-trip (mutations
+  edit the loaded XML tree in place rather than regenerating it).
