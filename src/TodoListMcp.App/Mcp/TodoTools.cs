@@ -220,6 +220,23 @@ public sealed class TodoTools
         [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
         _manager.Write(list, d => d.MoveTask(id, newParentId, index));
 
+    [McpServerTool(Name = "add_dependency")]
+    [Description("Make a task depend on another task in the same list (a DEPENDS ordering relationship), optionally with a lead-in/lag in days. Re-adding an existing dependency updates its lead-in.")]
+    public TodoTask AddDependency(
+        [Description("The dependent task's ID (the one that should follow the other).")] int id,
+        [Description("The ID of the task it depends on. Must exist in the same list; cannot be the task itself.")] int dependsOnId,
+        [Description("Lead-in/lag offset in days: positive delays the start, negative brings it forward. Omit or 0 for none.")] int? leadIn = null,
+        [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
+        _manager.Write(list, d => d.AddDependency(id, dependsOnId, leadIn));
+
+    [McpServerTool(Name = "remove_dependency")]
+    [Description("Remove a task's dependency on another task. No-op if the dependency isn't present.")]
+    public TodoTask RemoveDependency(
+        [Description("The dependent task's ID.")] int id,
+        [Description("The ID of the task it currently depends on.")] int dependsOnId,
+        [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
+        _manager.Write(list, d => d.RemoveDependency(id, dependsOnId));
+
     private static DateTime? ParseDate(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return null;

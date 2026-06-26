@@ -71,6 +71,24 @@ public class PersistenceTests : IDisposable
     }
 
     [Fact]
+    public void Written_dependencies_survive_save_to_disk_and_reload()
+    {
+        var path = Path.Combine(_dir, "out.tdl");
+        var doc = TestData.Sample();
+
+        // A plain dependency and one with a negative lead-in, persisted to a real UTF-16 file.
+        doc.AddDependency(1, dependsOnId: 3);
+        doc.AddDependency(2, dependsOnId: 3, leadIn: -5);
+        doc.SaveAs(path);
+
+        var reloaded = TodoListDocument.Load(path);
+        var dep1 = Assert.Single(reloaded.GetTask(1)!.Dependencies);
+        Assert.Equal((3, (int?)null), (dep1.DependsOnId, dep1.LeadInDays));
+        var dep2 = Assert.Single(reloaded.GetTask(2)!.Dependencies);
+        Assert.Equal((3, (int?)-5), (dep2.DependsOnId, dep2.LeadInDays));
+    }
+
+    [Fact]
     public void Round_trip_through_string_preserves_structure()
     {
         var doc = TestData.Sample();

@@ -104,6 +104,44 @@ public class SampleFileTests
         }
     }
 
+    [Fact]
+    public void Reads_dependencies_from_real_file()
+    {
+        var doc = LoadSample();
+        var all = Flatten(doc.GetTasks()).ToList();
+
+        // The fixture wires up four <DEPENDS> across tasks, two of them carrying a DEPENDSLEADIN
+        // (a positive and a negative one) — genuine ToDoList output, not a hand-written fixture.
+        var deps = all.SelectMany(t => t.Dependencies).Select(d => (d.DependsOnId, d.LeadInDays)).ToList();
+        Assert.Equal(4, deps.Count);
+        Assert.Contains((19, (int?)5), deps);
+        Assert.Contains((21, (int?)-5), deps);
+        Assert.Contains((3, (int?)null), deps);
+        Assert.Contains((20, (int?)null), deps);
+    }
+
+    [Fact]
+    public void Dependencies_survive_load_save_reload()
+    {
+        var doc = LoadSample();
+        var dependent = Flatten(doc.GetTasks()).First(t => t.Dependencies.Count > 0);
+        var expected = dependent.Dependencies.Select(d => (d.DependsOnId, d.LeadInDays)).ToList();
+
+        var tmp = Path.Combine(Path.GetTempPath(), "tdlmcp_deps_" + Guid.NewGuid().ToString("N") + ".tdl");
+        try
+        {
+            doc.SaveAs(tmp);
+            var reloaded = TodoListDocument.Load(tmp);
+            Assert.Equal(
+                expected,
+                reloaded.GetTask(dependent.Id)!.Dependencies.Select(d => (d.DependsOnId, d.LeadInDays)).ToList());
+        }
+        finally
+        {
+            File.Delete(tmp);
+        }
+    }
+
     private static IEnumerable<TodoTask> Flatten(IEnumerable<TodoTask> tasks)
     {
         foreach (var t in tasks)

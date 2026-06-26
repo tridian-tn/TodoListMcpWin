@@ -107,6 +107,16 @@ public sealed class TodoTask
     /// </summary>
     public IReadOnlyList<string> FileLinks { get; init; } = Array.Empty<string>();
 
+    /// <summary>
+    /// Task-ordering dependencies (the &lt;DEPENDS&gt; child elements): tasks this one should follow,
+    /// each with an optional lead-in/lag in days. Only local (same-list) dependencies are surfaced;
+    /// cross-tasklist <c>tasklist?id</c> references are preserved on disk but not reported. Duplicate
+    /// references (same dependee) are collapsed, keeping the first. References to a task no longer in
+    /// the list are weeded out, mirroring ToDoList (the stale element stays on disk until a delete
+    /// prunes it).
+    /// </summary>
+    public IReadOnlyList<TaskDependency> Dependencies { get; init; } = Array.Empty<TaskDependency>();
+
     /// <summary>1-based dotted hierarchy path, e.g. "2.1.3" (the POSSTRING attribute).</summary>
     public string Position { get; init; } = "";
 

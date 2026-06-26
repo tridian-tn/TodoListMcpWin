@@ -137,8 +137,11 @@ public sealed class TodoListDocument
     public int? NextUniqueId => (int?)_root.Attribute("NEXTUNIQUEID");
 
     /// <summary>All top-level tasks with their full subtree.</summary>
-    public IReadOnlyList<TodoTask> GetTasks() =>
-        _root.Elements("TASK").Select(e => Project(e)).ToList();
+    public IReadOnlyList<TodoTask> GetTasks()
+    {
+        var taskIds = AllTaskIds();
+        return _root.Elements("TASK").Select(e => Project(e, taskIds)).ToList();
+    }
 
     /// <summary>A single task (with its subtree), or null if not found.</summary>
     public TodoTask? GetTask(int id)
@@ -151,9 +154,10 @@ public sealed class TodoListDocument
     public IReadOnlyList<TodoTask> Search(TaskQuery query)
     {
         var results = new List<TodoTask>();
+        var taskIds = AllTaskIds();
         foreach (var e in _root.Descendants("TASK"))
         {
-            var t = Project(e, includeSubtasks: false);
+            var t = Project(e, taskIds, includeSubtasks: false);
             if (Matches(t, query))
                 results.Add(t);
         }
@@ -202,7 +206,10 @@ public sealed class TodoListDocument
         return true;
     }
 
-    private TodoTask Project(XElement e, bool includeSubtasks = true) => new()
+    private TodoTask Project(XElement e, bool includeSubtasks = true) =>
+        Project(e, AllTaskIds(), includeSubtasks);
+
+    private TodoTask Project(XElement e, HashSet<int> taskIds, bool includeSubtasks = true) => new()
     {
         Id = (int?)e.Attribute("ID") ?? 0,
         Title = (string?)e.Attribute("TITLE") ?? "",
@@ -234,9 +241,10 @@ public sealed class TodoListDocument
         AllocatedTo = ReadMulti(e, "ALLOCATEDTO", "PERSON"),
         AllocatedBy = TrimToNull((string?)e.Attribute("ALLOCATEDBY")),
         FileLinks = ReadMulti(e, "FILEREFPATH", "FILEREFPATH", trim: false),
+        Dependencies = ReadDepends(e, taskIds),
         Position = (string?)e.Attribute("POSSTRING") ?? "",
         Subtasks = includeSubtasks
-            ? e.Elements("TASK").Select(child => Project(child)).ToList()
+            ? e.Elements("TASK").Select(child => Project(child, taskIds)).ToList()
             : Array.Empty<TodoTask>(),
     };
 
@@ -337,6 +345,37 @@ public sealed class TodoListDocument
         foreach (var c in e.Elements(childName))
             if (!string.IsNullOrWhiteSpace(c.Value)) values.Add(trim ? c.Value.Trim() : c.Value);
         return values.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>
+    /// Reads the task-ordering dependencies (&lt;DEPENDS&gt; child elements). The element body is the
+    /// local dependee task ID and the optional DEPENDSLEADIN attribute is a lead/lag in days. Only
+    /// local (integer-bodied) references are surfaced; cross-tasklist <c>tasklist?id</c> bodies are
+    /// left on the element and round-tripped, but not reported. Duplicate dependees collapse to the
+    /// first, matching how ToDoList keys a dependency by its task. Dependencies on a task no longer
+    /// in the list (<paramref name="taskIds"/>) are weeded out, mirroring ToDoList's read filter
+    /// (<c>GetTaskLocalDependencies</c>); the stale element stays on disk until a delete prunes it.
+    /// </summary>
+    private static IReadOnlyList<TaskDependency> ReadDepends(XElement e, HashSet<int> taskIds)
+    {
+        var deps = new List<TaskDependency>();
+        foreach (var c in e.Elements("DEPENDS"))
+        {
+            var body = c.Value?.Trim();
+            if (string.IsNullOrEmpty(body)) continue;
+            if (!int.TryParse(body, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id)) continue;
+            if (!taskIds.Contains(id)) continue;
+            int? leadIn = null;
+            var lead = (string?)c.Attribute("DEPENDSLEADIN");
+            // ToDoList conflates a zero lead-in with no lead-in (GetItemValueI returns 0 either way,
+            // and it omits the attribute on write), so surface an explicit "0" as null too.
+            if (!string.IsNullOrWhiteSpace(lead)
+                && int.TryParse(lead.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var li)
+                && li != 0)
+                leadIn = li;
+            deps.Add(new TaskDependency { DependsOnId = id, LeadInDays = leadIn });
+        }
+        return deps.GroupBy(d => d.DependsOnId).Select(g => g.First()).ToList();
     }
 
     private static DateTime? ReadOaDate(XElement e, string name)
@@ -502,9 +541,19 @@ public sealed class TodoListDocument
         // parent. A locked descendant does not block deleting an ancestor (bCheckChildren=FALSE).
         EnsureNotLocked(e);
         EnsureParentNotLocked(e);
+
+        // Collect every ID in the subtree about to go, so they can be pruned from the dependencies
+        // of the tasks that remain — ToDoList does this on delete (RemoveOrphanTaskLocalDependencies).
+        var removedIds = e.DescendantsAndSelf("TASK")
+            .Select(t => (int?)t.Attribute("ID") ?? 0)
+            .Where(x => x > 0)
+            .ToHashSet();
+
+        var now = _clock.Now;
         e.Remove();
+        PruneLocalDependenciesOn(removedIds, now);
         Renumber();
-        TouchRoot(_clock.Now);
+        TouchRoot(now);
         return true;
     }
 
@@ -544,10 +593,101 @@ public sealed class TodoListDocument
         return Project(e);
     }
 
+    /// <summary>
+    /// Adds (or updates) a dependency: makes task <paramref name="id"/> depend on
+    /// <paramref name="dependsOnId"/>, with an optional lead/lag in days. Re-adding an existing
+    /// dependee replaces its lead-in. The dependee must exist in this list and may not be the task
+    /// itself. Cross-tasklist DEPENDS already on the task are left untouched.
+    /// </summary>
+    public TodoTask AddDependency(int id, int dependsOnId, int? leadIn = null)
+    {
+        var e = FindTaskElement(id) ?? throw new TaskNotFoundException(id);
+        EnsureNotLocked(e);
+        if (dependsOnId == id)
+            throw new ArgumentException("A task cannot depend on itself.", nameof(dependsOnId));
+        if (FindTaskElement(dependsOnId) is null)
+            throw new TaskNotFoundException(dependsOnId);
+
+        var now = _clock.Now;
+        var existing = DependsElements(e, dependsOnId);
+        // Keep (or create) one element and drop any duplicates, so the on-disk form matches
+        // ToDoList's invariant that a dependee appears at most once.
+        var dep = existing.FirstOrDefault();
+        if (dep is null)
+        {
+            dep = new XElement("DEPENDS", dependsOnId.ToString(CultureInfo.InvariantCulture));
+            e.Add(dep);
+        }
+        else
+        {
+            for (var i = 1; i < existing.Count; i++) existing[i].Remove();
+        }
+        // A zero (or unset) lead-in is ToDoList's default, written as the bare element with no
+        // attribute; only a non-zero offset emits DEPENDSLEADIN.
+        dep.SetAttributeValue("DEPENDSLEADIN",
+            leadIn is int li && li != 0 ? li.ToString(CultureInfo.InvariantCulture) : null);
+        Touch(e, now);
+        TouchRoot(now);
+        return Project(e);
+    }
+
+    /// <summary>
+    /// Removes the dependency from task <paramref name="id"/> on <paramref name="dependsOnId"/>.
+    /// A no-op (the task is returned unchanged, the document left clean) when no such dependency
+    /// exists. Cross-tasklist DEPENDS are left untouched.
+    /// </summary>
+    public TodoTask RemoveDependency(int id, int dependsOnId)
+    {
+        var e = FindTaskElement(id) ?? throw new TaskNotFoundException(id);
+        EnsureNotLocked(e);
+        var matches = DependsElements(e, dependsOnId);
+        if (matches.Count == 0) return Project(e);
+
+        var now = _clock.Now;
+        foreach (var m in matches) m.Remove();
+        Touch(e, now);
+        TouchRoot(now);
+        return Project(e);
+    }
+
     // ---- Helpers -----------------------------------------------------------
 
     private XElement? FindTaskElement(int id) =>
         _root.Descendants("TASK").FirstOrDefault(t => (int?)t.Attribute("ID") == id);
+
+    /// <summary>The set of all task IDs in the document, used to weed out stale dependencies on read.</summary>
+    private HashSet<int> AllTaskIds()
+    {
+        var ids = new HashSet<int>();
+        foreach (var t in _root.Descendants("TASK"))
+            if ((int?)t.Attribute("ID") is int v && v > 0) ids.Add(v);
+        return ids;
+    }
+
+    /// <summary>The &lt;DEPENDS&gt; elements on a task whose local body matches the given ID (normally 0 or 1).</summary>
+    private static IReadOnlyList<XElement> DependsElements(XElement task, int dependsOnId) =>
+        task.Elements("DEPENDS").Where(d =>
+            int.TryParse(d.Value?.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var x)
+            && x == dependsOnId).ToList();
+
+    /// <summary>
+    /// Removes any local &lt;DEPENDS&gt; on the remaining tasks that point at one of the given (just
+    /// deleted) IDs, stamping each task whose dependencies actually changed. Mirrors ToDoList's
+    /// <c>RemoveOrphanTaskLocalDependencies</c>. Cross-tasklist references never match (non-integer body).
+    /// </summary>
+    private void PruneLocalDependenciesOn(ISet<int> removedIds, DateTime now)
+    {
+        foreach (var task in _root.Descendants("TASK"))
+        {
+            var stale = task.Elements("DEPENDS")
+                .Where(d => int.TryParse(d.Value?.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var x)
+                    && removedIds.Contains(x))
+                .ToList();
+            if (stale.Count == 0) continue;
+            foreach (var d in stale) d.Remove();
+            Touch(task, now);
+        }
+    }
 
     /// <summary>True when a task element is locked (read-only) in ToDoList.</summary>
     private static bool IsTaskLocked(XElement e) => (string?)e.Attribute("LOCK") == "1";
