@@ -46,7 +46,7 @@ and unzip the app.
    icon → **Open configuration…**, add your `.tdl` files, and save. The file list is picked up live —
    no restart needed. See [Configure](#configure) for the exact format.
 
-5. **Connect an LLM.** Follow [Connect Claude](#connect-claude) for Claude Code or Claude Desktop. Also tested with Codex, and other LLMs are available.
+5. **Connect an LLM.** Follow [Connect an LLM](#connect-an-llm) for Claude Code or Claude Desktop. Also tested with Codex, and other LLMs are available.
 
 Optional: right-click the tray icon → **Start with Windows** so it launches automatically at logon —
 see [Using the tray app](#using-the-tray-app).
@@ -91,10 +91,10 @@ startup, so changing those needs an app restart.
 - **Port**: loopback TCP port; the server binds `127.0.0.1`/`::1` only.
 - **UseHttps**: serve over HTTPS. Off by default: the server is loopback-only, so plain HTTP never
   leaves your machine and skips the certificate step. Set `true` to enable TLS; see
-  [Connect Claude](#connect-claude).
+  [Connect an LLM](#connect-an-llm).
 - **TrustCertificate**: install the localhost certificate into your current-user Trusted Root store
   (default). First install shows a one-time Windows consent prompt; no admin needed. Node-based
-  clients need one more step to honour it; see [Connect Claude](#connect-claude).
+  clients need one more step to honour it; see [Connect an LLM](#connect-an-llm).
 - **ModifiedBy**: written to each task's `LASTMODBY` when this server changes it.
 
 ## HTTPS
@@ -109,7 +109,7 @@ you enable it (`"UseHttps": true`), on first run the app:
 
 If you skipped the prompt, re-run it any time from the tray: **Trust HTTPS certificate (for Claude)…**.
 Node-based clients (Claude Code, and the `mcp-remote` bridge) need one extra setting to honour that
-certificate; see [Connect Claude](#connect-claude).
+certificate; see [Connect an LLM](#connect-an-llm).
 
 ## Connect an LLM
 
