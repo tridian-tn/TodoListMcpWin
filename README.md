@@ -245,6 +245,7 @@ TodoListMcp.exe --disable-autostart
 | `complete_task` / `reopen_task` | Toggle completion (`DONEDATE` + progress). |
 | `delete_task` | Remove a task and its subtree. |
 | `move_task` | Re-parent and/or reorder a task. |
+| `add_dependency` / `remove_dependency` | Add or remove a task-ordering dependency (`DEPENDS`) on another task in the same list, with an optional lead-in/lag in days. |
 
 Every tool takes an optional `list` alias; omit it to use the default list. Tasks you locked in
 ToDoList (`LOCK="1"`, surfaced as `IsLocked`) are read-only: `update_task`, `complete_task`,
@@ -394,6 +395,14 @@ The engine mirrors how ToDoList actually stores data (verified against a real ex
   and reads the legacy single-attribute form too. Exact duplicates are collapsed case-insensitively
   (as ToDoList does); file links are stored **verbatim** otherwise — no trimming or path normalisation.
   Root-level pick-lists are *not* mistaken for per-task assignments.
+- Task-ordering dependencies are **`<DEPENDS>` child elements** — the element body is the local
+  dependee task ID, with an optional `DEPENDSLEADIN` attribute (a lead/lag in days). Surfaced as
+  `Dependencies` (id + optional lead-in) and edited with `add_dependency`/`remove_dependency`, which
+  validate the dependee exists in the same list and reject self-dependency (cycle checking is left to
+  ToDoList). Dependencies on a task no longer in the list are **weeded out on read** and **pruned from
+  every dependent when their target is deleted** — both mirroring ToDoList (a plain round-trip keeps a
+  stale reference on disk until a delete removes it). Cross-tasklist (`tasklist?id`) references are
+  preserved on round-trip but not surfaced or authored.
 - Completion is detected from **`DONEDATE`** (the source of truth). ToDoList's calculated
   **`GOODASDONE`** flag (set by the "treat parents with all subtasks completed as done" option) is
   surfaced read-only as `IsGoodAsDone`, and kept in sync when this server completes/reopens a task.
