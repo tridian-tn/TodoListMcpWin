@@ -166,6 +166,63 @@ public sealed class UpdateTaskRequest
     public IReadOnlyList<string>? FileLinks { get; init; }
 }
 
+/// <summary>
+/// Parameters for appending one entry to the time-log sidecar. Mirrors ToDoList's "Add Logged
+/// Time" action: an entry is valid when it has a comment, or a non-zero period (hours with
+/// <see cref="From"/> ≤ <see cref="To"/>). A task-less, comment-only entry is allowed.
+/// </summary>
+public sealed class LogTimeRequest
+{
+    /// <summary>The task to log against; omit or 0 for a task-less entry.</summary>
+    public int TaskId { get; init; }
+
+    /// <summary>Hours logged. Negative values clamp to 0.</summary>
+    public double Hours { get; init; }
+
+    /// <summary>
+    /// End of the logged period (local). When <see cref="From"/> is not given, the period is
+    /// <c>[When − Hours, When]</c>, matching ToDoList's dialog. Defaults to now when omitted.
+    /// </summary>
+    public DateTime? When { get; init; }
+
+    /// <summary>Explicit start of the period (local); overrides the <see cref="When"/>-derived start.</summary>
+    public DateTime? From { get; init; }
+
+    /// <summary>Explicit end of the period (local); overrides <see cref="When"/>.</summary>
+    public DateTime? To { get; init; }
+
+    /// <summary>Free-text comment. Required when there is no timed period.</summary>
+    public string? Comment { get; init; }
+
+    /// <summary>Who logged the time. Defaults to the current OS user when omitted.</summary>
+    public string? Person { get; init; }
+
+    /// <summary>Entry type; defaults to "Adjusted" (a manual entry) when omitted.</summary>
+    public string? Type { get; init; }
+
+    /// <summary>
+    /// When a task is given, also increment that task's TIMESPENT by <see cref="Hours"/> (keeping
+    /// the task's existing unit), mirroring the dialog's "Add to time spent" checkbox.
+    /// </summary>
+    public bool AddToTimeSpent { get; init; }
+}
+
+/// <summary>Filters for reading time-log entries. All criteria are combined with AND.</summary>
+public sealed class TimeLogQuery
+{
+    /// <summary>Only entries for this task ID. Use 0 to select task-less entries.</summary>
+    public int? TaskId { get; init; }
+
+    /// <summary>Only entries whose period ends on or after this instant (local).</summary>
+    public DateTime? Since { get; init; }
+
+    /// <summary>Only entries whose period starts on or before this instant (local).</summary>
+    public DateTime? Until { get; init; }
+
+    /// <summary>Only entries logged by this person (case-insensitive, exact).</summary>
+    public string? Person { get; init; }
+}
+
 /// <summary>Filters for searching tasks. All criteria are combined with AND.</summary>
 public sealed class TaskQuery
 {

@@ -150,6 +150,23 @@ public sealed class TodoListDocument
         return e is null ? null : Project(e);
     }
 
+    /// <summary>
+    /// The task's display path — the backslash-joined titles of its ancestors with a trailing
+    /// backslash, matching the Path column ToDoList snapshots into its time log. Empty for a
+    /// top-level task; null when the task is not found.
+    /// </summary>
+    public string? GetTaskPath(int id)
+    {
+        var e = FindTaskElement(id);
+        if (e is null) return null;
+        var titles = new List<string>();
+        for (var p = e.Parent; p is not null && p.Name.LocalName == "TASK"; p = p.Parent)
+            titles.Add((string?)p.Attribute("TITLE") ?? "");
+        if (titles.Count == 0) return "";
+        titles.Reverse();
+        return string.Join("\\", titles) + "\\";
+    }
+
     /// <summary>Flat list of tasks matching every supplied criterion.</summary>
     public IReadOnlyList<TodoTask> Search(TaskQuery query)
     {
@@ -497,6 +514,30 @@ public sealed class TodoListDocument
         if (req.AllocatedTo is not null) SetMulti(e, "ALLOCATEDTO", "PERSON", req.AllocatedTo);
         if (req.FileLinks is not null) SetMulti(e, "FILEREFPATH", "FILEREFPATH", req.FileLinks, trim: false);
 
+        Touch(e, now);
+        TouchRoot(now);
+        return Project(e);
+    }
+
+    /// <summary>
+    /// Adds <paramref name="deltaHours"/> to a task's TIMESPENT, keeping the task's existing unit
+    /// (defaulting to hours when none is set), clamped at ≥ 0. Mirrors ToDoList's delta add
+    /// (<c>TDCTIMEPERIOD::AddTime</c>) used by the logged-time "Add to time spent" option. A zero
+    /// delta is a no-op. The amount is converted into the task's unit via the fixed working-week
+    /// convention, so adding hours to a task measured in days reconciles consistently.
+    /// </summary>
+    public TodoTask IncrementTimeSpent(int id, double deltaHours)
+    {
+        var e = FindTaskElement(id) ?? throw new TaskNotFoundException(id);
+        EnsureNotLocked(e);
+        if (deltaHours == 0) return Project(e);
+
+        var unit = ReadTimeUnit(e, "TIMESPENTUNITS");
+        var currentHours = TimeUnits.ToHours(ReadTime(e, "TIMESPENT") ?? 0, unit);
+        var newValue = TimeUnits.FromHours(Math.Max(0, currentHours + deltaHours), unit);
+
+        var now = _clock.Now;
+        SetTime(e, "TIMESPENT", "TIMESPENTUNITS", newValue, unit);
         Touch(e, now);
         TouchRoot(now);
         return Project(e);

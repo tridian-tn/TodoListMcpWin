@@ -88,6 +88,13 @@ public static class TimeUnits
         _ => 1.0,
     });
 
+    /// <summary>
+    /// Converts an hours value into <paramref name="unit"/> — the inverse of <see cref="ToHours"/>,
+    /// using the same fixed working-week convention. Used to add a delta (logged in hours) into a
+    /// task's existing TIMESPENT unit.
+    /// </summary>
+    public static double FromHours(double hours, TimeUnit unit) => hours / ToHours(1.0, unit);
+
     /// <summary>Formats a value the way ToDoList writes time amounts (plain decimal, 8 places).</summary>
     public static string Format(double value) =>
         value.ToString("0.00000000", CultureInfo.InvariantCulture);
