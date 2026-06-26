@@ -46,7 +46,7 @@ and unzip the app.
    icon → **Open configuration…**, add your `.tdl` files, and save. The file list is picked up live —
    no restart needed. See [Configure](#configure) for the exact format.
 
-5. **Connect an LLM.** Follow [Connect an LLM](#connect-an-llm) for Claude Code or Claude Desktop. Also tested with Codex, and other LLMs are available.
+5. **Connect an LLM.** Follow [Connect an LLM](#connect-an-llm) for setup instructions for Claude Code, Claude Desktop, and Codex.
 
 Optional: right-click the tray icon → **Start with Windows** so it launches automatically at logon —
 see [Using the tray app](#using-the-tray-app).
@@ -204,7 +204,7 @@ this entirely. Restart Claude Desktop after editing the file.
 With the Codex desktop application, enter the Settings, navigate to Integrations->MCP Servers and click Add Server.
 
 * The transport is "Streamable HTTP", not "STDIO"
-* Enter the URL: `http://localhost:3001/`
+* Enter the URL: `http://localhost:3001/` (replace `3001` with your configured `Port`; use `https://` if `UseHttps` is enabled)
 * Click Save
 
 ## Using the tray app
