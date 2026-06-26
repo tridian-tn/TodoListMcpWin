@@ -47,6 +47,30 @@ public class PersistenceTests : IDisposable
     }
 
     [Fact]
+    public void Written_file_links_survive_save_to_disk_and_reload()
+    {
+        var path = Path.Combine(_dir, "out.tdl");
+        var doc = TestData.Sample();
+
+        // Add links on one task and replace links on another, then persist to a real UTF-16 file.
+        // The URL carries an '&' so the XML-escaping path is exercised through the writer and reader.
+        doc.AddTask(new()
+        {
+            Title = "Linked",
+            FileLinks = new[] { @".\Evidence\doors.jpg", "https://example.com/?a=1&b=2" },
+        });
+        doc.UpdateTask(1, new() { FileLinks = new[] { @"\\server\share\plan.pdf" } });
+        var addedId = doc.NextUniqueId!.Value - 1;
+        doc.SaveAs(path);
+
+        var reloaded = TodoListDocument.Load(path);
+        Assert.Equal(
+            new[] { @".\Evidence\doors.jpg", "https://example.com/?a=1&b=2" },
+            reloaded.GetTask(addedId)!.FileLinks);
+        Assert.Equal(new[] { @"\\server\share\plan.pdf" }, reloaded.GetTask(1)!.FileLinks);
+    }
+
+    [Fact]
     public void Round_trip_through_string_preserves_structure()
     {
         var doc = TestData.Sample();

@@ -291,6 +291,42 @@ public class UpdateTaskTests
     }
 
     [Fact]
+    public void Update_replaces_file_links()
+    {
+        var doc = TestData.Sample();
+        doc.UpdateTask(1, new() { FileLinks = new[] { "a.txt", "b.txt" } });
+        Assert.Equal(new[] { "a.txt", "b.txt" }, doc.GetTask(1)!.FileLinks);
+
+        // A subsequent replace fully supplants the prior list.
+        doc.UpdateTask(1, new() { FileLinks = new[] { "c.txt" } });
+        Assert.Equal(new[] { "c.txt" }, doc.GetTask(1)!.FileLinks);
+        Assert.DoesNotContain("a.txt", doc.ToXmlString());
+    }
+
+    [Fact]
+    public void Update_with_empty_file_links_clears_them()
+    {
+        var doc = TestData.Sample();
+        doc.UpdateTask(1, new() { FileLinks = new[] { "a.txt" } });
+
+        doc.UpdateTask(1, new() { FileLinks = Array.Empty<string>() });
+
+        Assert.Empty(doc.GetTask(1)!.FileLinks);
+        Assert.DoesNotContain("FILEREFPATH", doc.ToXmlString());
+    }
+
+    [Fact]
+    public void Update_null_file_links_leaves_them_unchanged()
+    {
+        var doc = TestData.Sample();
+        doc.UpdateTask(1, new() { FileLinks = new[] { "a.txt" } });
+
+        doc.UpdateTask(1, new() { Title = "Renamed" });
+
+        Assert.Equal(new[] { "a.txt" }, doc.GetTask(1)!.FileLinks);
+    }
+
+    [Fact]
     public void Update_missing_task_throws()
     {
         var doc = TestData.Sample();

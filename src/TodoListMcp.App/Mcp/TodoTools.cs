@@ -99,6 +99,7 @@ public sealed class TodoTools
         [Description("Categories to assign.")] string[]? categories = null,
         [Description("People to assign the task to.")] string[]? allocatedTo = null,
         [Description("Who allocated the task (single value).")] string? allocatedBy = null,
+        [Description("File/URL links to attach (local/network paths, http(s)/mailto URLs, or tdl:// task links). Stored verbatim; blank entries are ignored and exact duplicates are collapsed case-insensitively, as ToDoList does.")] string[]? fileLinks = null,
         [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
         _manager.Write(list, d => d.AddTask(new AddTaskRequest
         {
@@ -123,6 +124,7 @@ public sealed class TodoTools
             Categories = categories ?? Array.Empty<string>(),
             AllocatedTo = allocatedTo ?? Array.Empty<string>(),
             AllocatedBy = allocatedBy,
+            FileLinks = fileLinks ?? Array.Empty<string>(),
         }));
 
     [McpServerTool(Name = "update_task")]
@@ -155,6 +157,7 @@ public sealed class TodoTools
         [Description("Replace the categories (empty array clears them).")] string[]? categories = null,
         [Description("Replace the assignees (empty array clears them).")] string[]? allocatedTo = null,
         [Description("New allocated-by person (empty string clears it).")] string? allocatedBy = null,
+        [Description("Replace the file/URL links (empty array clears them). Stored verbatim; blank entries are ignored and exact duplicates are collapsed case-insensitively, as ToDoList does.")] string[]? fileLinks = null,
         [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
         _manager.Write(list, d => d.UpdateTask(id, new UpdateTaskRequest
         {
@@ -184,6 +187,7 @@ public sealed class TodoTools
             Categories = categories,
             AllocatedTo = allocatedTo,
             AllocatedBy = allocatedBy,
+            FileLinks = fileLinks,
         }));
 
     [McpServerTool(Name = "complete_task")]

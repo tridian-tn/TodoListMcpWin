@@ -98,6 +98,15 @@ public sealed class TodoTask
     /// <summary>Who assigned the task (the single-value ALLOCATEDBY attribute); null when unset.</summary>
     public string? AllocatedBy { get; init; }
 
+    /// <summary>
+    /// File and URL links attached to the task (the &lt;FILEREFPATH&gt; child elements; the UI's
+    /// "File Link" field). Each may be a local/network path, an http(s)/mailto URL, an Outlook
+    /// folder, or a tdl://&lt;id&gt; task link. Surfaced and stored verbatim — relative paths are
+    /// relative to the .tdl file's folder and are not normalised. Exact duplicates are collapsed
+    /// case-insensitively (as ToDoList does); empty/whitespace-only entries are dropped.
+    /// </summary>
+    public IReadOnlyList<string> FileLinks { get; init; } = Array.Empty<string>();
+
     /// <summary>1-based dotted hierarchy path, e.g. "2.1.3" (the POSSTRING attribute).</summary>
     public string Position { get; init; } = "";
 

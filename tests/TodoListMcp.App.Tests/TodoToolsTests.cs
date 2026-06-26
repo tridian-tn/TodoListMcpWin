@@ -79,6 +79,31 @@ public class TodoToolsTests
     }
 
     [Fact]
+    public void File_links_round_trip_through_the_tool_surface_and_disk()
+    {
+        // The manager persists to the .tdl file on every write and reloads on every read, so adding
+        // then reading file links through the tools is a genuine write-to-file / read-back round-trip.
+        var (tools, dir) = NewTools();
+        try
+        {
+            tools.AddTask(
+                title: "Linked",
+                fileLinks: new[] { @".\Evidence\doors.jpg", "https://example.com/?a=1&b=2" },
+                list: "work");
+
+            var added = tools.GetTask(id: 2, list: "work");
+            Assert.Equal(
+                new[] { @".\Evidence\doors.jpg", "https://example.com/?a=1&b=2" },
+                added.FileLinks);
+
+            // Replacing through update_task also persists and reads back.
+            tools.UpdateTask(id: 2, fileLinks: new[] { @"\\server\share\plan.pdf" }, list: "work");
+            Assert.Equal(new[] { @"\\server\share\plan.pdf" }, tools.GetTask(id: 2, list: "work").FileLinks);
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
     public void GetTask_surfaces_the_editable_source_for_an_authored_markdown_task()
     {
         // Issue #30: the source authored through the tool surface comes back via CommentsSource on a

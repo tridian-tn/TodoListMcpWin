@@ -240,7 +240,7 @@ TodoListMcp.exe --disable-autostart
 | `get_tasks` | Full task hierarchy for a list. |
 | `get_task` | One task (and its subtasks) by ID. |
 | `search_tasks` | Filter by text, category, assignee, allocated-by, completion, flag, status, version, external ID, minimum priority/risk, or time estimate/spent range (in hours). |
-| `add_task` | Create a task (title, notes + `commentsFormat`, priority, risk, % done, time estimate/spent, due/start date, status, version, flag, external ID, categories, assignees/allocated-by, parent/index). |
+| `add_task` | Create a task (title, notes + `commentsFormat`, priority, risk, % done, time estimate/spent, due/start date, status, version, flag, external ID, categories, assignees/allocated-by, file links, parent/index). |
 | `update_task` | Change fields; only supplied parameters are touched (with explicit clear flags). Editing the notes of a task with formatted comments needs `replaceFormattedComments` — see [Task comments / notes](#task-comments--notes). |
 | `complete_task` / `reopen_task` | Toggle completion (`DONEDATE` + progress). |
 | `delete_task` | Remove a task and its subtree. |
@@ -389,7 +389,11 @@ The engine mirrors how ToDoList actually stores data (verified against a real ex
   Markdown/HTML also expose their editable source for lossless round-trips — see
   [Task comments / notes](#task-comments--notes) for exactly what happens on read and write.
 - Assignees are **`<PERSON>` child elements** (or a single `ALLOCATEDTO` attribute); categories are
-  **`<CATEGORY>`** likewise. Root-level pick-lists are *not* mistaken for per-task assignments.
+  **`<CATEGORY>`** likewise, and file/URL links (the "File Link" field) are **`<FILEREFPATH>`**.
+  Like ToDoList, this server always **writes** these as repeated child elements — even a single value —
+  and reads the legacy single-attribute form too. Exact duplicates are collapsed case-insensitively
+  (as ToDoList does); file links are stored **verbatim** otherwise — no trimming or path normalisation.
+  Root-level pick-lists are *not* mistaken for per-task assignments.
 - Completion is detected from **`DONEDATE`** (the source of truth). ToDoList's calculated
   **`GOODASDONE`** flag (set by the "treat parents with all subtasks completed as done" option) is
   surfaced read-only as `IsGoodAsDone`, and kept in sync when this server completes/reopens a task.

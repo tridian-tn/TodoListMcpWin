@@ -21,7 +21,7 @@ Real ToDoList files contain many attributes and elements this app does not model
 edit the loaded XML tree in place and preserve everything else** — a load → modify → save round-trip
 must not drop or rewrite unrelated data. Flag any change that regenerates tasks from the projection
 model instead of mutating the existing tree, or that fails to preserve unknown
-attributes/elements (`CUSTOMATTRIB`, `METADATA`, `TAG`, `FILEREFPATH`, colour/calc attributes, …).
+attributes/elements (`CUSTOMATTRIB`, `METADATA`, `TAG`, `DEPENDENCY`, colour/calc attributes, …).
 
 Format invariants to uphold:
 
@@ -32,9 +32,12 @@ Format invariants to uphold:
 - **Priority** — native 0–10 scale (`-2` = none). Do not bucket into a smaller enum.
 - **Notes** — the `<COMMENTS>` child element (`COMMENTSTYPE="PLAIN_TEXT"`), not a `COMMENTS`
   attribute. Setting plain notes drops any `CUSTOMCOMMENTS` (RTF) so plain text wins.
-- **Assignees / categories** — child elements `<PERSON>` / `<CATEGORY>` for multiple values, or a
-  single `ALLOCATEDTO` / `CATEGORY` attribute. Root-level `<PERSON>`/`<CATEGORY>` are global
-  pick-lists and must not be read as task assignments — scope reads to the task element.
+- **Assignees / categories / file links** — multi-value fields written as repeated child elements
+  `<PERSON>` / `<CATEGORY>` / `<FILEREFPATH>`. ToDoList writes elements **even for a single value**
+  (its `SetTaskArray` always emits `XIT_ELEMENT`); the single `ALLOCATEDTO` / `CATEGORY` attribute is
+  only a legacy *read* fallback, so always write elements to match its on-disk format. Root-level
+  `<PERSON>`/`<CATEGORY>` are global pick-lists and must not be read as task assignments — scope reads
+  to the task element.
 - **Completion** — `DONEDATE` is the source of truth (`IsDone`). `GOODASDONE` is a derived/cached
   flag ToDoList recomputes; surface it read-only and keep it in sync on complete/reopen, but do not
   make completion depend on it.

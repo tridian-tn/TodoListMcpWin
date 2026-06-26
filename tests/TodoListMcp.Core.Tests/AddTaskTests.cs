@@ -200,18 +200,64 @@ public class AddTaskTests
     }
 
     [Fact]
-    public void Single_assignee_written_as_attribute_multiple_as_elements()
+    public void Multi_value_fields_always_written_as_child_elements()
     {
         var doc = TestData.Sample();
         var one = doc.AddTask(new() { Title = "One", AllocatedTo = new[] { "Solo" } });
         var many = doc.AddTask(new() { Title = "Many", AllocatedTo = new[] { "A", "B" } });
 
         var xml = doc.ToXmlString();
-        Assert.Contains("ALLOCATEDTO=\"Solo\"", xml);
+        // ToDoList writes assignees as <PERSON> child elements even for a single value — never as an
+        // ALLOCATEDTO attribute — so match its on-disk format exactly.
+        Assert.Contains("<PERSON>Solo</PERSON>", xml);
+        Assert.DoesNotContain("ALLOCATEDTO=\"Solo\"", xml);
         Assert.Contains("<PERSON>A</PERSON><PERSON>B</PERSON>", xml);
 
-        // Either representation reads back identically.
+        // The legacy attribute form still reads back identically.
         Assert.Equal(new[] { "Solo" }, doc.GetTask(one.Id)!.AllocatedTo);
         Assert.Equal(new[] { "A", "B" }, doc.GetTask(many.Id)!.AllocatedTo);
+    }
+
+    [Fact]
+    public void Add_file_links_writes_filerefpath_elements_in_order()
+    {
+        var doc = TestData.Sample();
+        var created = doc.AddTask(new()
+        {
+            Title = "Linked",
+            FileLinks = new[] { @".\Evidence\doors.jpg", "https://example.com/x" },
+        });
+
+        var xml = doc.ToXmlString();
+        Assert.Contains(
+            @"<FILEREFPATH>.\Evidence\doors.jpg</FILEREFPATH><FILEREFPATH>https://example.com/x</FILEREFPATH>",
+            xml);
+
+        Assert.Equal(
+            new[] { @".\Evidence\doors.jpg", "https://example.com/x" },
+            doc.GetTask(created.Id)!.FileLinks);
+    }
+
+    [Fact]
+    public void File_links_are_stored_verbatim_without_trimming()
+    {
+        var doc = TestData.Sample();
+        // Leading/trailing whitespace is part of the path — ToDoList does not trim array items, so
+        // neither do we. (Categories/assignees still trim; file links are the verbatim exception.)
+        var created = doc.AddTask(new() { Title = "Spaced", FileLinks = new[] { "  spaced path.txt  " } });
+
+        Assert.Equal(new[] { "  spaced path.txt  " }, doc.GetTask(created.Id)!.FileLinks);
+    }
+
+    [Fact]
+    public void Add_single_file_link_written_as_element_not_attribute()
+    {
+        var doc = TestData.Sample();
+        var created = doc.AddTask(new() { Title = "One link", FileLinks = new[] { @"\\server\share\plan.pdf" } });
+
+        var xml = doc.ToXmlString();
+        Assert.Contains(@"<FILEREFPATH>\\server\share\plan.pdf</FILEREFPATH>", xml);
+        Assert.DoesNotContain("FILEREFPATH=\"", xml);
+        Assert.Equal(new[] { @"\\server\share\plan.pdf" }, doc.GetTask(created.Id)!.FileLinks);
     }
 }

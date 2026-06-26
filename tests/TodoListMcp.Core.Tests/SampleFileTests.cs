@@ -51,6 +51,37 @@ public class SampleFileTests
     }
 
     [Fact]
+    public void Reads_file_links_from_real_file()
+    {
+        var doc = LoadSample();
+        var all = Flatten(doc.GetTasks()).ToList();
+
+        // The fixture attaches Evidence Board photos to several tasks via <FILEREFPATH>.
+        Assert.Contains(all, t => t.FileLinks.Contains(@".\Evidence Board Photos\doors.jpg"));
+        Assert.Equal(5, all.Sum(t => t.FileLinks.Count));
+    }
+
+    [Fact]
+    public void File_links_survive_load_save_reload()
+    {
+        var doc = LoadSample();
+        var linked = Flatten(doc.GetTasks()).First(t => t.FileLinks.Count > 0);
+        var expected = linked.FileLinks;
+
+        var tmp = Path.Combine(Path.GetTempPath(), "tdlmcp_links_" + Guid.NewGuid().ToString("N") + ".tdl");
+        try
+        {
+            doc.SaveAs(tmp);
+            var reloaded = TodoListDocument.Load(tmp);
+            Assert.Equal(expected, reloaded.GetTask(linked.Id)!.FileLinks);
+        }
+        finally
+        {
+            File.Delete(tmp);
+        }
+    }
+
+    [Fact]
     public void Real_file_survives_load_modify_save_reload()
     {
         var doc = LoadSample();
