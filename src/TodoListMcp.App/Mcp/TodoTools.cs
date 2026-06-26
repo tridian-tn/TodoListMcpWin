@@ -288,16 +288,18 @@ public sealed class TodoTools
     }
 
     /// <summary>
-    /// Parses an inclusive upper-bound date. A bare date (midnight, no time) is taken as the end of
-    /// that day, so a single-day range (e.g. since and until both "today") includes entries logged
-    /// during the day rather than only ones starting exactly at midnight. An explicit time is used
-    /// verbatim.
+    /// Parses an inclusive upper-bound date. A date-only input (no time component) is taken as the
+    /// end of that day, so a single-day range (e.g. since and until both "today") includes entries
+    /// logged during the day rather than only ones starting exactly at midnight. An explicit time —
+    /// including an explicit midnight — is honoured verbatim. Date-only is detected from the input
+    /// itself (a time always carries a ':'), so an explicit "...00:00" is not mistaken for a bare
+    /// date; the end-of-day is computed tick-wise so it can't overflow at DateTime.MaxValue.
     /// </summary>
     private static DateTime? ParseUpperBoundDate(string? value)
     {
-        var dt = ParseDate(value);
-        if (dt is null) return null;
-        return dt.Value.TimeOfDay == TimeSpan.Zero ? dt.Value.Date.AddDays(1).AddTicks(-1) : dt.Value;
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var dt = ParseDate(value)!.Value;
+        return value.Contains(':') ? dt : dt.Date.AddTicks(TimeSpan.TicksPerDay - 1);
     }
 
     private static TimeUnit? ParseUnit(string? value, string paramName)

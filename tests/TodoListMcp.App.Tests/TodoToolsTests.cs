@@ -139,6 +139,10 @@ public class TodoToolsTests
             // An explicit upper-bound time is honoured verbatim (not bumped to end of day): the entry
             // starts at 12:00 (when − hours), so an 11:00 bound excludes it.
             Assert.Empty(tools.GetTimeLog(since: "2026-06-26", until: "2026-06-26 11:00", list: "work"));
+
+            // Even an explicit midnight is verbatim — it must not be mistaken for a bare date and
+            // bumped to end-of-day, so it excludes the 12:00-start entry.
+            Assert.Empty(tools.GetTimeLog(since: "2026-06-26", until: "2026-06-26 00:00", list: "work"));
         }
         finally { Directory.Delete(dir, recursive: true); }
     }
