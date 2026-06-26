@@ -237,6 +237,48 @@ public sealed class TodoTools
         [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
         _manager.Write(list, d => d.RemoveDependency(id, dependsOnId));
 
+    [McpServerTool(Name = "log_time")]
+    [Description("Append a time-log entry to the list's _Log.csv sidecar (distinct from a task's time-spent attribute). Logs against a task, or task-less when taskId is omitted. An entry needs a comment, or non-zero hours over a valid period. Optionally also increments the task's time spent.")]
+    public TimeLogEntry LogTime(
+        [Description("Hours to log (e.g. 1.5). Negative values clamp to 0.")] double hours,
+        [Description("Task ID to log against. Omit (or 0) for a task-less entry.")] int? taskId = null,
+        [Description("Comment for the entry. Required when hours is 0.")] string? comment = null,
+        [Description("End of the period as yyyy-MM-dd HH:mm or ISO 8601; the start is derived as this minus the hours. Defaults to now.")] string? when = null,
+        [Description("Explicit start of the period; overrides the when-derived start.")] string? from = null,
+        [Description("Explicit end of the period; overrides when.")] string? to = null,
+        [Description("Who logged the time. Defaults to the current OS user.")] string? person = null,
+        [Description("Entry type: \"Adjusted\" (manual, default) or \"Tracked\" (timer).")] string? type = null,
+        [Description("When a task is given, also add these hours to the task's time spent (keeping its unit).")] bool addToTimeSpent = false,
+        [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
+        _manager.LogTime(list, new LogTimeRequest
+        {
+            TaskId = taskId ?? 0,
+            Hours = hours,
+            Comment = comment,
+            When = ParseDate(when),
+            From = ParseDate(from),
+            To = ParseDate(to),
+            Person = person,
+            Type = type,
+            AddToTimeSpent = addToTimeSpent,
+        });
+
+    [McpServerTool(Name = "get_time_log")]
+    [Description("Read time-log entries from the list's _Log.csv sidecar, optionally filtered by task, date range, or person. Includes task-less entries.")]
+    public IReadOnlyList<TimeLogEntry> GetTimeLog(
+        [Description("Only entries for this task ID. Use 0 for task-less entries. Omit for all.")] int? taskId = null,
+        [Description("Only entries ending on or after this date (yyyy-MM-dd or ISO 8601).")] string? since = null,
+        [Description("Only entries starting on or before this date (yyyy-MM-dd or ISO 8601).")] string? until = null,
+        [Description("Only entries logged by this person (case-insensitive, exact).")] string? person = null,
+        [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
+        _manager.ReadLog(list, new TimeLogQuery
+        {
+            TaskId = taskId,
+            Since = ParseDate(since),
+            Until = ParseDate(until),
+            Person = person,
+        });
+
     private static DateTime? ParseDate(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return null;

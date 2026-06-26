@@ -246,6 +246,8 @@ TodoListMcp.exe --disable-autostart
 | `delete_task` | Remove a task and its subtree. |
 | `move_task` | Re-parent and/or reorder a task. |
 | `add_dependency` / `remove_dependency` | Add or remove a task-ordering dependency (`DEPENDS`) on another task in the same list, with an optional lead-in/lag in days. |
+| `log_time` | Append a time-log entry to the list's `_Log.csv` sidecar (task or task-less), optionally also incrementing the task's time spent — see [Logged time](#logged-time). |
+| `get_time_log` | Read time-log entries from the sidecar, filtered by task, date range, or person. |
 
 Every tool takes an optional `list` alias; omit it to use the default list. Tasks you locked in
 ToDoList (`LOCK="1"`, surfaced as `IsLocked`) are read-only: `update_task`, `complete_task`,
@@ -300,6 +302,32 @@ update_task(id, comments: editedSource, commentsFormat: "markdown", replaceForma
 | Rich Text (RTF) | `849CF988-…` | ⚠️ flattened mirror only | ❌ | Refused unless `replaceFormattedComments` (then replaced in the format you give). |
 | Spreadsheet | `BBDCAEDF-…` | ⚠️ flattened mirror only | ❌ | As above. |
 | Other content control | (its GUID) | ⚠️ flattened mirror only; `CommentsFormat` is the raw id | ❌ | As above. |
+
+## Logged time
+
+ToDoList keeps a **time log** — a structured record of individual work sessions and manual
+adjustments — in a CSV file beside the `.tdl`, named `<listname>_Log.csv` (e.g. `Tasks.tdl` →
+`Tasks_Log.csv`). This is **separate from a task's `TimeSpent` attribute**: the log is an
+append-style audit trail of periods, each optionally tied to a task, while `TimeSpent` is a single
+rolled-up total. `log_time` appends an entry; `get_time_log` reads them back.
+
+- **Task or task-less.** Omit `taskId` (or pass `0`) to log time against no task at all — useful for
+  capturing work that isn't yet a task. An entry is valid when it has a `comment`, or non-zero
+  `hours` over a valid period.
+- **The period.** Pass `when` (the end of the period) and the start is derived as `when − hours`,
+  mirroring ToDoList's dialog; or give explicit `from`/`to`. Omit them and the entry ends now.
+- **Person** defaults to the current OS user (as ToDoList does); override with `person`.
+- **`type`** is `Adjusted` (a manual entry, the default) or `Tracked` (a timer session).
+- **`addToTimeSpent`** — when logging against a task, also add the hours to that task's `TimeSpent`
+  (keeping the task's existing unit), mirroring the dialog's "Add to time spent" checkbox. The `.tdl`
+  and the sidecar are written under the same per-list lock, sidecar first — so an interrupted write
+  leaves the log entry without its `TimeSpent` bump, never an inflated `TimeSpent` with no log entry.
+
+The sidecar is written as ToDoList writes it: UTF-16, a `TODOTIMELOG VERSION 1` line, a header row,
+then tab-separated rows (`Task ID, Title, User ID, Start/End Date/Time, Time Spent (Hrs), Comment,
+Type, Path, Colour`). Existing rows — including older-format ones — are preserved verbatim when a new
+entry is appended. Editing or deleting existing entries, and ToDoList's per-task "log separately"
+mode, are not supported.
 
 ## Concurrency note
 
@@ -385,6 +413,10 @@ The engine mirrors how ToDoList actually stores data (verified against a real ex
   (a plain decimal in the unit, *not* an OLE serial). Units are single letters: `I` minutes, `H` hours
   (default), `D` days, `K` weekdays, `W` weeks, `M` months, `Y` years. The tools also accept the words.
   The derived `CALC*` rollups are ToDoList's to compute, so they're left untouched and never written.
+- **Logged time** is a separate concern from `TIMESPENT`: a structured CSV sidecar
+  (`<listname>_Log.csv`) of individual time entries, not part of the `.tdl` XML. Read and appended
+  with the same fidelity discipline (UTF-16, `TODOTIMELOG VERSION 1` + header, tab-separated rows,
+  value encoding, atomic write), preserving existing rows verbatim — see [Logged time](#logged-time).
 - Notes are the **`<COMMENTS>` child element** (not an attribute), with the format in `COMMENTSTYPE`.
   This server reads tasks in **any** comment format and **authors plain text, Markdown and HTML**;
   Markdown/HTML also expose their editable source for lossless round-trips — see

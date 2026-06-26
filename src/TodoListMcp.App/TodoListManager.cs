@@ -70,6 +70,67 @@ public sealed class TodoListManager
             return result;
         });
 
+    /// <summary>Reads (and filters) the time-log sidecar for a list, under the list's file lock.</summary>
+    public IReadOnlyList<Core.Model.TimeLogEntry> ReadLog(string? alias, Core.Model.TimeLogQuery query) =>
+        WithLock(alias, entry => TimeLogDocument.Load(LogPath(entry)).Read(query));
+
+    /// <summary>
+    /// Appends one entry to the time-log sidecar, optionally also incrementing the task's TIMESPENT.
+    /// Both writes happen under the same per-list lock. The sidecar is written before the .tdl, so a
+    /// failure mid-sequence leaves the log entry without its TIMESPENT bump (harmless extra data)
+    /// rather than an inflated TIMESPENT with no audit-trail entry.
+    /// </summary>
+    public Core.Model.TimeLogEntry LogTime(string? alias, Core.Model.LogTimeRequest req) =>
+        WithLock(alias, entry =>
+        {
+            var hours = Math.Max(0, req.Hours);
+
+            // Snapshot the task title and, if asked, stage its TIMESPENT increment — both touch the
+            // .tdl, so load it once. A task entry must reference a task that exists in this list.
+            TodoListDocument? doc = null;
+            var title = "";
+            if (req.TaskId > 0)
+            {
+                doc = LoadOrThrow(entry);
+                title = (doc.GetTask(req.TaskId) ?? throw new TaskNotFoundException(req.TaskId)).Title;
+                if (req.AddToTimeSpent)
+                    doc.IncrementTimeSpent(req.TaskId, hours);
+            }
+
+            var to = req.To ?? req.When ?? DateTime.Now;
+            var from = req.From ?? to.AddHours(-hours);
+            var logEntry = new Core.Model.TimeLogEntry
+            {
+                TaskId = req.TaskId,
+                TaskTitle = title,
+                Person = string.IsNullOrWhiteSpace(req.Person)
+                    ? Environment.UserName
+                    : req.Person.Trim(),
+                From = from,
+                To = to,
+                Hours = hours,
+                Comment = string.IsNullOrWhiteSpace(req.Comment) ? null : req.Comment,
+                Type = string.IsNullOrWhiteSpace(req.Type) ? "Adjusted" : req.Type.Trim(),
+            };
+
+            // Write the sidecar first, then commit the .tdl increment (see the method remark).
+            var log = TimeLogDocument.Load(LogPath(entry));
+            log.Append(logEntry);
+            log.Save();
+            if (doc is not null && doc.IsDirty) doc.Save();
+            _log.LogInformation("Logged {Hours}h to list '{Alias}' ({Path}).", hours, entry.Alias, LogPath(entry));
+            return logEntry;
+        });
+
+    /// <summary>Resolves the time-log sidecar path (<c>&lt;listname&gt;_Log.csv</c>) beside the .tdl.</summary>
+    private static string LogPath(TodoFileEntry entry)
+    {
+        var full = Path.GetFullPath(entry.Path);
+        var dir = Path.GetDirectoryName(full) ?? "";
+        var name = Path.GetFileNameWithoutExtension(full);
+        return Path.Combine(dir, name + "_Log.csv");
+    }
+
     private T WithLock<T>(string? alias, Func<TodoFileEntry, T> action)
     {
         var entry = Resolve(alias);
