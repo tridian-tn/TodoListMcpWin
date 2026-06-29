@@ -147,6 +147,41 @@ public class TodoToolsTests
         finally { Directory.Delete(dir, recursive: true); }
     }
 
+    [Fact]
+    public void UpdateTimeLogEntry_moves_an_entry_through_the_tool_surface()
+    {
+        var (tools, dir) = NewTools();
+        try
+        {
+            tools.LogTime(hours: 8, taskId: 1, from: "2026-06-29 09:08", to: "2026-06-29 17:08",
+                comment: "NOTHING DONE", list: "work");
+
+            var updated = tools.UpdateTimeLogEntry(
+                taskId: 1, comment: "NOTHING DONE",
+                newFrom: "2026-06-29 10:00", newTo: "2026-06-29 18:00", list: "work");
+            Assert.Equal(new DateTime(2026, 6, 29, 10, 0, 0), updated.From);
+
+            var read = Assert.Single(tools.GetTimeLog(taskId: 1, list: "work"));
+            Assert.Equal(new DateTime(2026, 6, 29, 10, 0, 0), read.From);
+            Assert.Equal(new DateTime(2026, 6, 29, 18, 0, 0), read.To);
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
+    public void DeleteTimeLogEntry_removes_an_entry_through_the_tool_surface()
+    {
+        var (tools, dir) = NewTools();
+        try
+        {
+            tools.LogTime(hours: 0, comment: "scratch", list: "work");
+            var removed = tools.DeleteTimeLogEntry(taskId: 0, comment: "scratch", list: "work");
+            Assert.Equal("scratch", removed.Comment);
+            Assert.Empty(tools.GetTimeLog(list: "work"));
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
     private sealed class StubOptionsMonitor : IOptionsMonitor<TodoListMcpOptions>
     {
         public StubOptionsMonitor(TodoListMcpOptions value) => CurrentValue = value;

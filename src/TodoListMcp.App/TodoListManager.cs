@@ -127,6 +127,45 @@ public sealed class TodoListManager
             return logEntry;
         });
 
+    /// <summary>
+    /// Edits the single time-log entry matched by <paramref name="selector"/> and saves the sidecar.
+    /// This touches only the <c>_Log.csv</c>; a task's TIMESPENT is never adjusted to follow an edit.
+    /// New From/To values are truncated to the minute, the sidecar's precision.
+    /// </summary>
+    public Core.Model.TimeLogEntry UpdateLogEntry(
+        string? alias, Core.Model.TimeLogSelector selector, Core.Model.TimeLogEdit edit) =>
+        WithLock(alias, entry =>
+        {
+            var normalised = new Core.Model.TimeLogEdit
+            {
+                From = edit.From is DateTime f ? TruncateToMinute(f) : null,
+                To = edit.To is DateTime t ? TruncateToMinute(t) : null,
+                Hours = edit.Hours,
+                Comment = edit.Comment,
+                Person = edit.Person,
+                Type = edit.Type,
+            };
+            var log = TimeLogDocument.Load(LogPath(entry));
+            var updated = log.Update(selector, normalised);
+            log.Save();
+            _log.LogInformation("Edited a time-log entry in list '{Alias}' ({Path}).", entry.Alias, LogPath(entry));
+            return updated;
+        });
+
+    /// <summary>
+    /// Deletes the single time-log entry matched by <paramref name="selector"/> and saves the sidecar.
+    /// This touches only the <c>_Log.csv</c>; a task's TIMESPENT is never adjusted to follow a delete.
+    /// </summary>
+    public Core.Model.TimeLogEntry DeleteLogEntry(string? alias, Core.Model.TimeLogSelector selector) =>
+        WithLock(alias, entry =>
+        {
+            var log = TimeLogDocument.Load(LogPath(entry));
+            var removed = log.Delete(selector);
+            log.Save();
+            _log.LogInformation("Deleted a time-log entry from list '{Alias}' ({Path}).", entry.Alias, LogPath(entry));
+            return removed;
+        });
+
     /// <summary>Drops the seconds/sub-second part of a timestamp (the log stores minute precision).</summary>
     private static DateTime TruncateToMinute(DateTime dt) =>
         dt.AddTicks(-(dt.Ticks % TimeSpan.TicksPerMinute));

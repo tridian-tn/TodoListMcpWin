@@ -223,6 +223,72 @@ public sealed class TimeLogQuery
     public string? Person { get; init; }
 }
 
+/// <summary>
+/// Identifies a single existing time-log entry to edit or delete. The format has no stable row ID,
+/// so an entry is addressed by a match on its salient fields; every supplied criterion is
+/// AND-combined and the match must resolve to <em>exactly one</em> entry. Zero matches or an
+/// ambiguous match (more than one) is an error, so an edit/delete never silently touches the wrong
+/// row. Timestamps match at minute precision (the sidecar's resolution). At least one criterion is
+/// required.
+/// </summary>
+public sealed class TimeLogSelector
+{
+    /// <summary>Match the task ID. Use 0 to select task-less entries.</summary>
+    public int? TaskId { get; init; }
+
+    /// <summary>Match the period start (compared to the minute).</summary>
+    public DateTime? From { get; init; }
+
+    /// <summary>Match the period end (compared to the minute).</summary>
+    public DateTime? To { get; init; }
+
+    /// <summary>Match the person (case-insensitive, exact).</summary>
+    public string? Person { get; init; }
+
+    /// <summary>Match the comment (case-sensitive, exact). Use "" to match a blank comment.</summary>
+    public string? Comment { get; init; }
+
+    /// <summary>Match the logged hours (to 3 decimals, the stored precision).</summary>
+    public double? Hours { get; init; }
+
+    /// <summary>True when at least one criterion is set.</summary>
+    public bool HasAnyCriterion =>
+        TaskId is not null || From is not null || To is not null
+        || Person is not null || Comment is not null || Hours is not null;
+}
+
+/// <summary>
+/// The new field values for an edited time-log entry. Any property left null keeps the entry's
+/// existing value; set a property to change it. The task ID, title and path are not editable here —
+/// changing the task would mean re-snapshotting its title/path. The edited row is re-serialised in
+/// the latest layout.
+/// </summary>
+public sealed class TimeLogEdit
+{
+    /// <summary>New period start; null keeps the current one.</summary>
+    public DateTime? From { get; init; }
+
+    /// <summary>New period end; null keeps the current one.</summary>
+    public DateTime? To { get; init; }
+
+    /// <summary>New logged hours; null keeps the current value.</summary>
+    public double? Hours { get; init; }
+
+    /// <summary>New comment; null keeps the current one, "" clears it.</summary>
+    public string? Comment { get; init; }
+
+    /// <summary>New person; null keeps the current one, "" clears it.</summary>
+    public string? Person { get; init; }
+
+    /// <summary>New entry type ("Adjusted"/"Tracked"); null keeps the current one, "" clears it.</summary>
+    public string? Type { get; init; }
+
+    /// <summary>True when at least one field is set.</summary>
+    public bool HasAnyChange =>
+        From is not null || To is not null || Hours is not null
+        || Comment is not null || Person is not null || Type is not null;
+}
+
 /// <summary>Filters for searching tasks. All criteria are combined with AND.</summary>
 public sealed class TaskQuery
 {

@@ -248,6 +248,8 @@ TodoListMcp.exe --disable-autostart
 | `add_dependency` / `remove_dependency` | Add or remove a task-ordering dependency (`DEPENDS`) on another task in the same list, with an optional lead-in/lag in days. |
 | `log_time` | Append a time-log entry to the list's `_Log.csv` sidecar (task or task-less), optionally also incrementing the task's time spent — see [Logged time](#logged-time). |
 | `get_time_log` | Read time-log entries from the sidecar, filtered by task, date range, or person. |
+| `update_time_log_entry` | Edit a single existing sidecar entry (identified by its current fields), changing only the values you supply. |
+| `delete_time_log_entry` | Delete a single existing sidecar entry (identified by its fields). |
 
 Every tool takes an optional `list` alias; omit it to use the default list. Tasks you locked in
 ToDoList (`LOCK="1"`, surfaced as `IsLocked`) are read-only: `update_task`, `complete_task`,
@@ -325,12 +327,25 @@ rolled-up total. `log_time` appends an entry; `get_time_log` reads them back.
 - **Reading back** — `get_time_log` filters by `taskId`, `person`, and a `since`/`until` date range.
   A bare `until` date is inclusive of that whole day, so `since` = `until` = today returns everything
   logged today (an explicit time on `until` is used as-is).
+- **Editing / deleting** — `update_time_log_entry` and `delete_time_log_entry` change or remove a
+  single existing entry. The format has no stable row ID, so you **identify the entry by its current
+  fields** (`taskId`, `from`, `to`, `person`, `comment`, `hours`); these are AND-combined and must
+  match **exactly one** entry — no match, or an ambiguous one (more than one), is an error rather than
+  touching the wrong row. Read the entry with `get_time_log` first to get its exact fields. `update`
+  changes only the `new*` values you pass (any you omit keep their current value; pass an empty string
+  to clear a comment/person/type) and re-serialises that row in the latest layout; **untouched rows
+  still round-trip verbatim**. Both touch only the sidecar — a task's `TimeSpent` is never adjusted to
+  follow an edit or delete. For example, to move today's entry to start at 10:00:
+
+  ```
+  update_time_log_entry(comment: "NOTHING DONE", newFrom: "2026-06-29 10:00", newTo: "2026-06-29 18:00")
+  ```
 
 The sidecar is written as ToDoList writes it: UTF-16, a `TODOTIMELOG VERSION 1` line, a header row,
 then tab-separated rows (`Task ID, Title, User ID, Start/End Date/Time, Time Spent (Hrs), Comment,
 Type, Path, Colour`). Existing rows — including older-format ones — are preserved verbatim when a new
-entry is appended. Editing or deleting existing entries, and ToDoList's per-task "log separately"
-mode, are not supported.
+entry is appended, or when another entry is edited or deleted; only a row you actually edit is
+rewritten (in the latest layout). ToDoList's per-task "log separately" mode is not supported.
 
 ## Concurrency note
 
@@ -419,7 +434,8 @@ The engine mirrors how ToDoList actually stores data (verified against a real ex
 - **Logged time** is a separate concern from `TIMESPENT`: a structured CSV sidecar
   (`<listname>_Log.csv`) of individual time entries, not part of the `.tdl` XML. Read and appended
   with the same fidelity discipline (UTF-16, `TODOTIMELOG VERSION 1` + header, tab-separated rows,
-  value encoding, atomic write), preserving existing rows verbatim — see [Logged time](#logged-time).
+  value encoding, atomic write); entries can also be edited and deleted, preserving every untouched
+  row verbatim — see [Logged time](#logged-time).
 - Notes are the **`<COMMENTS>` child element** (not an attribute), with the format in `COMMENTSTYPE`.
   This server reads tasks in **any** comment format and **authors plain text, Markdown and HTML**;
   Markdown/HTML also expose their editable source for lossless round-trips — see

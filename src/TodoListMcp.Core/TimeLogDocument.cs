@@ -167,6 +167,92 @@ public sealed class TimeLogDocument
     private static bool IsValidToLog(TimeLogEntry e) =>
         !string.IsNullOrEmpty(e.Comment) || (e.Hours != 0 && e.From != default && e.To >= e.From);
 
+    // ---- Editing / deleting ------------------------------------------------
+
+    /// <summary>
+    /// Replaces the fields of the single entry the selector matches and returns the updated entry.
+    /// Any field left unset on <paramref name="edit"/> keeps its current value. The rewritten row
+    /// drops its verbatim raw text, so it re-serialises in the latest layout; untouched rows are
+    /// unaffected. The result must still be a valid entry (a comment, or a non-zero valid period).
+    /// </summary>
+    public TimeLogEntry Update(TimeLogSelector selector, TimeLogEdit edit)
+    {
+        if (edit is null) throw new ArgumentNullException(nameof(edit));
+        if (!edit.HasAnyChange)
+            throw new ArgumentException("No fields to change were supplied.", nameof(edit));
+
+        var index = ResolveSingle(selector);
+        var old = _rows[index].Entry;
+        var updated = new TimeLogEntry
+        {
+            TaskId = old.TaskId,
+            TaskTitle = old.TaskTitle,
+            Person = edit.Person is null ? old.Person : NullIfEmpty(edit.Person.Trim()),
+            From = edit.From ?? old.From,
+            To = edit.To ?? old.To,
+            Hours = edit.Hours ?? old.Hours,
+            Comment = edit.Comment is null ? old.Comment : NullIfEmpty(edit.Comment),
+            Type = edit.Type is null ? old.Type : NullIfEmpty(edit.Type.Trim()),
+            Path = old.Path,
+        };
+
+        if (!IsValidToLog(updated))
+            throw new ArgumentException(
+                "The edited entry needs a comment, or a non-zero number of hours over a valid period.",
+                nameof(edit));
+
+        _rows[index] = new Row(updated, null); // drop the raw → re-serialise in the latest layout
+        IsDirty = true;
+        return updated;
+    }
+
+    /// <summary>Removes the single entry the selector matches and returns it.</summary>
+    public TimeLogEntry Delete(TimeLogSelector selector)
+    {
+        var index = ResolveSingle(selector);
+        var removed = _rows[index].Entry;
+        _rows.RemoveAt(index);
+        IsDirty = true;
+        return removed;
+    }
+
+    /// <summary>
+    /// Resolves a selector to the index of the one entry it matches, or throws if it matches none
+    /// (<see cref="TimeLogEntryNotFoundException"/>) or more than one
+    /// (<see cref="AmbiguousTimeLogMatchException"/>).
+    /// </summary>
+    private int ResolveSingle(TimeLogSelector selector)
+    {
+        if (selector is null) throw new ArgumentNullException(nameof(selector));
+        if (!selector.HasAnyCriterion)
+            throw new ArgumentException(
+                "A time-log selector must supply at least one matching field.", nameof(selector));
+
+        var found = -1;
+        var count = 0;
+        for (var i = 0; i < _rows.Count; i++)
+        {
+            if (!Matches(_rows[i].Entry, selector)) continue;
+            if (count++ == 0) found = i;
+        }
+
+        if (count == 0) throw new TimeLogEntryNotFoundException();
+        if (count > 1) throw new AmbiguousTimeLogMatchException(count);
+        return found;
+    }
+
+    private static bool Matches(TimeLogEntry e, TimeLogSelector s) =>
+        (s.TaskId is not int t || e.TaskId == t)
+        && (s.From is not DateTime f || TruncateToMinute(e.From) == TruncateToMinute(f))
+        && (s.To is not DateTime to || TruncateToMinute(e.To) == TruncateToMinute(to))
+        && (s.Person is null || string.Equals(e.Person ?? "", s.Person.Trim(), StringComparison.OrdinalIgnoreCase))
+        && (s.Comment is null || string.Equals(e.Comment ?? "", s.Comment, StringComparison.Ordinal))
+        && (s.Hours is not double h || Math.Abs(e.Hours - h) < 0.0005);
+
+    /// <summary>Drops the seconds/sub-second part of a timestamp (the log stores minute precision).</summary>
+    private static DateTime TruncateToMinute(DateTime dt) =>
+        dt.AddTicks(-(dt.Ticks % TimeSpan.TicksPerMinute));
+
     // ---- Row formatting / parsing -----------------------------------------
 
     private static string BuildHeader(char delim) => string.Join(delim, LatestColumns);

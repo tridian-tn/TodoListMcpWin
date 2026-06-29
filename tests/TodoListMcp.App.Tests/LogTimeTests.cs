@@ -123,6 +123,75 @@ public class LogTimeTests : IDisposable
         Assert.Equal(entry.To, read.To);
     }
 
+    [Fact]
+    public void UpdateLogEntry_moves_an_entry_and_leaves_timespent_untouched()
+    {
+        var manager = Manager();
+        manager.LogTime("work", new LogTimeRequest
+        {
+            TaskId = 1,
+            Hours = 8,
+            From = new DateTime(2026, 6, 29, 9, 8, 0),
+            To = new DateTime(2026, 6, 29, 17, 8, 0),
+            Comment = "NOTHING DONE",
+            AddToTimeSpent = true,
+        });
+        var spentBefore = manager.Read("work", d => d.GetTask(1))!.TimeSpent;
+
+        var updated = manager.UpdateLogEntry(
+            "work",
+            new TimeLogSelector { TaskId = 1, Comment = "NOTHING DONE" },
+            new TimeLogEdit { From = new DateTime(2026, 6, 29, 10, 0, 0), To = new DateTime(2026, 6, 29, 18, 0, 0) });
+
+        Assert.Equal(new DateTime(2026, 6, 29, 10, 0, 0), updated.From);
+        Assert.Equal(new DateTime(2026, 6, 29, 18, 0, 0), updated.To);
+
+        // The edit persists...
+        var read = Assert.Single(manager.ReadLog("work", new TimeLogQuery { TaskId = 1 }));
+        Assert.Equal(new DateTime(2026, 6, 29, 10, 0, 0), read.From);
+        // ...and the task's TIMESPENT is unchanged by the edit.
+        Assert.Equal(spentBefore, manager.Read("work", d => d.GetTask(1))!.TimeSpent);
+    }
+
+    [Fact]
+    public void UpdateLogEntry_truncates_new_times_to_the_minute()
+    {
+        var manager = Manager();
+        manager.LogTime("work", new LogTimeRequest
+        {
+            TaskId = 1, Hours = 1, From = new DateTime(2026, 6, 29, 9, 0, 0),
+            To = new DateTime(2026, 6, 29, 10, 0, 0), Comment = "x",
+        });
+
+        var updated = manager.UpdateLogEntry(
+            "work",
+            new TimeLogSelector { TaskId = 1 },
+            new TimeLogEdit { From = new DateTime(2026, 6, 29, 9, 30, 45) });
+        Assert.Equal(0, updated.From.Second);
+        Assert.Equal(new DateTime(2026, 6, 29, 9, 30, 0), updated.From);
+    }
+
+    [Fact]
+    public void DeleteLogEntry_removes_the_entry_from_the_sidecar()
+    {
+        var manager = Manager();
+        manager.LogTime("work", new LogTimeRequest { Hours = 0, Comment = "scratch" });
+        Assert.Single(manager.ReadLog("work", new TimeLogQuery()));
+
+        var removed = manager.DeleteLogEntry("work", new TimeLogSelector { TaskId = 0, Comment = "scratch" });
+        Assert.Equal("scratch", removed.Comment);
+        Assert.Empty(manager.ReadLog("work", new TimeLogQuery()));
+    }
+
+    [Fact]
+    public void DeleteLogEntry_with_no_match_throws()
+    {
+        var manager = Manager();
+        manager.LogTime("work", new LogTimeRequest { Hours = 0, Comment = "scratch" });
+        Assert.Throws<TodoListMcp.Core.TimeLogEntryNotFoundException>(() =>
+            manager.DeleteLogEntry("work", new TimeLogSelector { Comment = "nope" }));
+    }
+
     private const string MinimalTdl =
         "<?xml version=\"1.0\" encoding=\"utf-16\"?>" +
         "<TODOLIST PROJECTNAME=\"T\" NEXTUNIQUEID=\"3\">" +

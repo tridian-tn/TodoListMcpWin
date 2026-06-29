@@ -279,6 +279,63 @@ public sealed class TodoTools
             Person = person,
         });
 
+    [McpServerTool(Name = "update_time_log_entry")]
+    [Description("Edit a single existing time-log entry in the list's _Log.csv sidecar. Identify the entry by its current fields (taskId/from/to/person/comment/hours) — these must match exactly one entry — and pass the new values to change. Any new* value left unset keeps the current one. Only the sidecar changes; a task's time spent is not adjusted.")]
+    public TimeLogEntry UpdateTimeLogEntry(
+        [Description("Identify the entry: its task ID (use 0 for a task-less entry). Omit to not match on task.")] int? taskId = null,
+        [Description("Identify the entry: its period start (yyyy-MM-dd HH:mm or ISO 8601), matched to the minute.")] string? from = null,
+        [Description("Identify the entry: its period end (yyyy-MM-dd HH:mm or ISO 8601), matched to the minute.")] string? to = null,
+        [Description("Identify the entry: its person (case-insensitive, exact).")] string? person = null,
+        [Description("Identify the entry: its comment (case-sensitive, exact).")] string? comment = null,
+        [Description("Identify the entry: its logged hours.")] double? hours = null,
+        [Description("New period start (yyyy-MM-dd HH:mm or ISO 8601).")] string? newFrom = null,
+        [Description("New period end (yyyy-MM-dd HH:mm or ISO 8601).")] string? newTo = null,
+        [Description("New logged hours.")] double? newHours = null,
+        [Description("New comment. Pass an empty string to clear it.")] string? newComment = null,
+        [Description("New person. Pass an empty string to clear it.")] string? newPerson = null,
+        [Description("New type: \"Adjusted\" or \"Tracked\". Pass an empty string to clear it.")] string? newType = null,
+        [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
+        _manager.UpdateLogEntry(
+            list,
+            new TimeLogSelector
+            {
+                TaskId = taskId,
+                From = ParseDate(from),
+                To = ParseDate(to),
+                Person = person,
+                Comment = comment,
+                Hours = hours,
+            },
+            new TimeLogEdit
+            {
+                From = ParseDate(newFrom),
+                To = ParseDate(newTo),
+                Hours = newHours,
+                Comment = newComment,
+                Person = newPerson,
+                Type = newType,
+            });
+
+    [McpServerTool(Name = "delete_time_log_entry")]
+    [Description("Delete a single existing time-log entry from the list's _Log.csv sidecar. Identify the entry by its fields (taskId/from/to/person/comment/hours) — these must match exactly one entry. Only the sidecar changes; a task's time spent is not adjusted. Returns the deleted entry.")]
+    public TimeLogEntry DeleteTimeLogEntry(
+        [Description("The entry's task ID (use 0 for a task-less entry). Omit to not match on task.")] int? taskId = null,
+        [Description("The entry's period start (yyyy-MM-dd HH:mm or ISO 8601), matched to the minute.")] string? from = null,
+        [Description("The entry's period end (yyyy-MM-dd HH:mm or ISO 8601), matched to the minute.")] string? to = null,
+        [Description("The entry's person (case-insensitive, exact).")] string? person = null,
+        [Description("The entry's comment (case-sensitive, exact).")] string? comment = null,
+        [Description("The entry's logged hours.")] double? hours = null,
+        [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
+        _manager.DeleteLogEntry(list, new TimeLogSelector
+        {
+            TaskId = taskId,
+            From = ParseDate(from),
+            To = ParseDate(to),
+            Person = person,
+            Comment = comment,
+            Hours = hours,
+        });
+
     private static DateTime? ParseDate(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return null;
