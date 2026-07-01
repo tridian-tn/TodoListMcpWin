@@ -21,7 +21,10 @@ Real ToDoList files contain many attributes and elements this app does not model
 edit the loaded XML tree in place and preserve everything else** — a load → modify → save round-trip
 must not drop or rewrite unrelated data. Flag any change that regenerates tasks from the projection
 model instead of mutating the existing tree, or that fails to preserve unknown
-attributes/elements (`CUSTOMATTRIB`, `METADATA`, `TAG`, `DEPENDENCY`, colour/calc attributes, …).
+attributes/elements (`REFID`, `CUSTOMATTRIB`, `METADATA`, `TAG`, `DEPENDENCY`, colour/calc
+attributes, …). `InternalFieldPreservationTests` guards this for `REFID`/`METADATA`/`CUSTOMCOMMENTS`
+(including `METADATA`'s GUID-named attributes) — extend it when adding fields that must ride through
+untouched.
 
 Format invariants to uphold:
 
