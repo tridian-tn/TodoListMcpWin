@@ -70,9 +70,23 @@ public sealed class TodoListManager
             return result;
         });
 
-    /// <summary>Reads (and filters) the time-log sidecar for a list, under the list's file lock.</summary>
+    /// <summary>The effective time-log layout for a list: its own override, else the global default.</summary>
+    public LogMode EffectiveLogMode(TodoFileEntry entry) =>
+        entry.LogMode ?? _options.CurrentValue.DefaultLogMode;
+
+    /// <summary>
+    /// Reads (and filters) the list's time log under its file lock. Mode-agnostic: it unions the
+    /// combined sidecar and every per-task file (as ToDoList's analysis does), so a list logged in
+    /// either layout — or a mix — reads back in full.
+    /// </summary>
     public IReadOnlyList<Core.Model.TimeLogEntry> ReadLog(string? alias, Core.Model.TimeLogQuery query) =>
-        WithLock(alias, entry => TimeLogDocument.Load(LogPath(entry)).Read(query));
+        WithLock(alias, entry =>
+        {
+            var entries = new List<Core.Model.TimeLogEntry>();
+            foreach (var file in TimeLogPaths.AllExisting(entry.Path))
+                entries.AddRange(TimeLogDocument.Load(file).Read(query));
+            return (IReadOnlyList<Core.Model.TimeLogEntry>)entries;
+        });
 
     /// <summary>
     /// Appends one entry to the time-log sidecar, optionally also incrementing the task's TIMESPENT.
@@ -118,12 +132,18 @@ public sealed class TodoListManager
                 Path = string.IsNullOrEmpty(path) ? null : path,
             };
 
+            // Resolve the target sidecar for the list's mode (combined file, or the task's per-task
+            // file in separate mode) and flag a likely config/on-disk mismatch.
+            var mode = EffectiveLogMode(entry);
+            WarnOnLayoutMismatch(entry, mode);
+            var logPath = TimeLogPaths.WriteTarget(entry.Path, mode, req.TaskId);
+
             // Write the sidecar first, then commit the .tdl increment (see the method remark).
-            var log = TimeLogDocument.Load(LogPath(entry));
+            var log = TimeLogDocument.Load(logPath);
             log.Append(logEntry);
             log.Save();
             if (doc is not null && doc.IsDirty) doc.Save();
-            _log.LogInformation("Logged {Hours}h to list '{Alias}' ({Path}).", hours, entry.Alias, LogPath(entry));
+            _log.LogInformation("Logged {Hours}h to list '{Alias}' ({Path}).", hours, entry.Alias, logPath);
             return logEntry;
         });
 
@@ -145,10 +165,8 @@ public sealed class TodoListManager
                 Person = edit.Person,
                 Type = edit.Type,
             };
-            var log = TimeLogDocument.Load(LogPath(entry));
-            var updated = log.Update(selector, normalised);
-            log.Save();
-            _log.LogInformation("Edited a time-log entry in list '{Alias}' ({Path}).", entry.Alias, LogPath(entry));
+            var (updated, path) = MutateOneEntry(entry, selector, doc => doc.Update(selector, normalised));
+            _log.LogInformation("Edited a time-log entry in list '{Alias}' ({Path}).", entry.Alias, path);
             return updated;
         });
 
@@ -159,24 +177,59 @@ public sealed class TodoListManager
     public Core.Model.TimeLogEntry DeleteLogEntry(string? alias, Core.Model.TimeLogSelector selector) =>
         WithLock(alias, entry =>
         {
-            var log = TimeLogDocument.Load(LogPath(entry));
-            var removed = log.Delete(selector);
-            log.Save();
-            _log.LogInformation("Deleted a time-log entry from list '{Alias}' ({Path}).", entry.Alias, LogPath(entry));
+            var (removed, path) = MutateOneEntry(entry, selector, doc => doc.Delete(selector));
+            _log.LogInformation("Deleted a time-log entry from list '{Alias}' ({Path}).", entry.Alias, path);
             return removed;
         });
+
+    /// <summary>
+    /// Applies an edit/delete to the single entry a selector matches across all of a list's sidecar
+    /// files. In separate mode an entry lives in exactly one per-task file, so the single-match rule
+    /// spans every file: the selector must match exactly one entry in total (no match →
+    /// <see cref="Core.TimeLogEntryNotFoundException"/>; more than one, even split across files →
+    /// <see cref="Core.AmbiguousTimeLogMatchException"/>). Only the owning file is rewritten.
+    /// </summary>
+    private (Core.Model.TimeLogEntry result, string path) MutateOneEntry(
+        TodoFileEntry entry, Core.Model.TimeLogSelector selector,
+        Func<TimeLogDocument, Core.Model.TimeLogEntry> mutate)
+    {
+        if (!selector.HasAnyCriterion)
+            throw new ArgumentException(
+                "A time-log selector must supply at least one matching field.", nameof(selector));
+
+        var files = TimeLogPaths.AllExisting(entry.Path);
+        var docs = files.Select(TimeLogDocument.Load).ToList();
+        var counts = docs.Select(d => d.CountMatches(selector)).ToList();
+        var total = counts.Sum();
+
+        if (total == 0) throw new Core.TimeLogEntryNotFoundException();
+        if (total > 1) throw new Core.AmbiguousTimeLogMatchException(total);
+
+        var owner = counts.FindIndex(c => c == 1);
+        var result = mutate(docs[owner]);
+        docs[owner].Save();
+        return (result, files[owner]);
+    }
 
     /// <summary>Drops the seconds/sub-second part of a timestamp (the log stores minute precision).</summary>
     private static DateTime TruncateToMinute(DateTime dt) =>
         dt.AddTicks(-(dt.Ticks % TimeSpan.TicksPerMinute));
 
-    /// <summary>Resolves the time-log sidecar path (<c>&lt;listname&gt;_Log.csv</c>) beside the .tdl.</summary>
-    private static string LogPath(TodoFileEntry entry)
+    /// <summary>
+    /// Logs a warning when the configured mode disagrees with what's already on disk — a combined file
+    /// present under separate mode, or per-task files present under combined mode — so entries silently
+    /// landing in the other layout are noticed. A pure filesystem check; it never reads ToDoList's config.
+    /// </summary>
+    private void WarnOnLayoutMismatch(TodoFileEntry entry, LogMode mode)
     {
-        var full = Path.GetFullPath(entry.Path);
-        var dir = Path.GetDirectoryName(full) ?? "";
-        var name = Path.GetFileNameWithoutExtension(full);
-        return Path.Combine(dir, name + "_Log.csv");
+        if (mode == LogMode.Combined && TimeLogPaths.SeparateFilesExist(entry.Path))
+            _log.LogWarning(
+                "List '{Alias}' has per-task time-log files but LogMode is Combined; new entries go to the combined sidecar.",
+                entry.Alias);
+        else if (mode == LogMode.Separate && File.Exists(TimeLogPaths.Combined(entry.Path)))
+            _log.LogWarning(
+                "List '{Alias}' has a combined time-log file but LogMode is Separate; new entries go to per-task files.",
+                entry.Alias);
     }
 
     private T WithLock<T>(string? alias, Func<TodoFileEntry, T> action)

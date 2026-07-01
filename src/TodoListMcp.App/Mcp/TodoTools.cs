@@ -19,9 +19,15 @@ public sealed class TodoTools
     public TodoTools(TodoListManager manager) => _manager = manager;
 
     [McpServerTool(Name = "list_todo_files")]
-    [Description("List the configured ToDoList (.tdl) files this server can read and modify, with their aliases.")]
+    [Description("List the configured ToDoList (.tdl) files this server can read and modify, with their aliases and effective time-log mode (combined or separate).")]
     public object ListFiles() =>
-        _manager.Files.Select(f => new { f.Alias, f.Path, f.Default }).ToArray();
+        _manager.Files.Select(f => new
+        {
+            f.Alias,
+            f.Path,
+            f.Default,
+            LogMode = _manager.EffectiveLogMode(f).ToString(),
+        }).ToArray();
 
     [McpServerTool(Name = "get_tasks")]
     [Description("Get the full task hierarchy (with subtasks) from a configured ToDoList file.")]

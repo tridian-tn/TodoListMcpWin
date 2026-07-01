@@ -516,6 +516,32 @@ public class TimeLogTests : IDisposable
     }
 
     [Fact]
+    public void CountMatches_counts_entries_matching_the_selector()
+    {
+        var log = TimeLogDocument.Parse(LatestSample);
+        Assert.Equal(1, log.CountMatches(new TimeLogSelector { TaskId = 771 }));
+        Assert.Equal(2, log.CountMatches(new TimeLogSelector { Person = "tryst" }));
+        Assert.Equal(0, log.CountMatches(new TimeLogSelector { TaskId = 999 }));
+    }
+
+    [Fact]
+    public void SaveAs_creates_missing_parent_directories()
+    {
+        // Separate-mode logs live in a <base>\ subfolder that may not exist yet on the first write.
+        var nested = Path.Combine(_dir, "Tasks", "771_Log.csv");
+        var log = TimeLogDocument.Load(nested); // missing → empty
+        log.Append(new TimeLogEntry
+        {
+            TaskId = 771, TaskTitle = "T", Person = "tryst", Hours = 1, Comment = "x",
+            From = new DateTime(2026, 1, 1, 9, 0, 0), To = new DateTime(2026, 1, 1, 10, 0, 0), Type = "Adjusted",
+        });
+        log.Save();
+
+        Assert.True(File.Exists(nested));
+        Assert.Single(TimeLogDocument.Load(nested).Entries);
+    }
+
+    [Fact]
     public void Update_treats_a_whitespace_only_comment_as_blank()
     {
         // A whitespace-only comment is normalised to null — so it both clears the comment and cannot
