@@ -72,9 +72,10 @@ startup, so changing those needs an app restart.
     "UseHttps": false,
     "TrustCertificate": true,
     "ModifiedBy": "TodoListMcp",
+    "DefaultLogMode": "combined",
     "Files": [
       { "Alias": "work",     "Path": "D:\\Lists\\work.tdl",     "Default": true },
-      { "Alias": "personal", "Path": "D:\\Lists\\personal.tdl" }
+      { "Alias": "personal", "Path": "D:\\Lists\\personal.tdl", "LogMode": "separate" }
     ]
   }
 }
@@ -96,6 +97,10 @@ startup, so changing those needs an app restart.
   (default). First install shows a one-time Windows consent prompt; no admin needed. Node-based
   clients need one more step to honour it; see [Connect an LLM](#connect-an-llm).
 - **ModifiedBy**: written to each task's `LASTMODBY` when this server changes it.
+- **DefaultLogMode**: the [logged-time](#logged-time) layout for lists that don't set their own —
+  `combined` (default) or `separate`. Mirrors ToDoList's global "log tasks separately" preference,
+  which this server can't read, so it's configured here. Picked up live.
+- **LogMode** (per file): overrides `DefaultLogMode` for one list. Omit to inherit the global default.
 
 ## HTTPS
 
@@ -236,7 +241,7 @@ TodoListMcp.exe --disable-autostart
 
 | Tool | Purpose |
 | --- | --- |
-| `list_todo_files` | List the configured files and their aliases. |
+| `list_todo_files` | List the configured files, their aliases, and each list's effective time-log mode. |
 | `get_tasks` | Full task hierarchy for a list. |
 | `get_task` | One task (and its subtasks) by ID. |
 | `search_tasks` | Filter by text, category, assignee, allocated-by, completion, flag, status, version, external ID, minimum priority/risk, or time estimate/spent range (in hours). |
@@ -342,11 +347,35 @@ rolled-up total. `log_time` appends an entry; `get_time_log` reads them back.
   update_time_log_entry(comment: "NOTHING DONE", newFrom: "2026-06-29 10:00", newTo: "2026-06-29 18:00")
   ```
 
+### Combined vs separate layout
+
+ToDoList can keep the log in one of two on-disk layouts, chosen by its global "log tasks separately"
+preference. Since that preference lives in ToDoList's own settings (not the `.tdl`), the server can't
+read it — you mirror it with [`DefaultLogMode`](#configuration) (and an optional per-list `LogMode`):
+
+| Mode | Layout (for `Tasks.tdl`) |
+| --- | --- |
+| `combined` (default) | one `Tasks_Log.csv` beside the `.tdl` |
+| `separate` | a `Tasks\` folder with one `<taskID>_Log.csv` per task (task-less entries → `Tasks\0_Log.csv`) |
+
+- **Reads are mode-agnostic.** `get_time_log` (and the edit/delete selectors) always union the
+  combined file **and** every per-task file, exactly as ToDoList's own analysis does — so a list logged
+  in either layout, or a mix of both, reads back in full regardless of the configured mode.
+- **Writes follow the mode.** `log_time` writes a new entry to the combined file, or to the task's
+  per-task file in separate mode (creating the `Tasks\` folder on first use). `list_todo_files` reports
+  each list's effective mode.
+- **Edit/delete route to the owning file.** In separate mode an entry lives in exactly one per-task
+  file; the selector must still match exactly one entry across *all* the files, and only that file is
+  rewritten.
+- **Mismatch warning.** If the configured mode disagrees with what's already on disk (e.g. `combined`
+  but per-task files exist), the server logs a warning — it never silently guesses from the filesystem.
+
 The sidecar is written as ToDoList writes it: UTF-16, a `TODOTIMELOG VERSION 1` line, a header row,
 then tab-separated rows (`Task ID, Title, User ID, Start/End Date/Time, Time Spent (Hrs), Comment,
-Type, Path, Colour`). Existing rows — including older-format ones — are preserved verbatim when a new
-entry is appended, or when another entry is edited or deleted; only a row you actually edit is
-rewritten (in the latest layout). ToDoList's per-task "log separately" mode is not supported.
+Type, Path, Colour`). Each file — combined or per-task — carries its own version line and header.
+Existing rows — including older-format ones — are preserved verbatim when a new entry is appended, or
+when another entry is edited or deleted; only a row you actually edit is rewritten (in the latest
+layout).
 
 ## Concurrency note
 
@@ -433,10 +462,11 @@ The engine mirrors how ToDoList actually stores data (verified against a real ex
   (default), `D` days, `K` weekdays, `W` weeks, `M` months, `Y` years. The tools also accept the words.
   The derived `CALC*` rollups are ToDoList's to compute, so they're left untouched and never written.
 - **Logged time** is a separate concern from `TIMESPENT`: a structured CSV sidecar
-  (`<listname>_Log.csv`) of individual time entries, not part of the `.tdl` XML. Read and appended
-  with the same fidelity discipline (UTF-16, `TODOTIMELOG VERSION 1` + header, tab-separated rows,
-  value encoding, atomic write); entries can also be edited and deleted, preserving every untouched
-  row verbatim — see [Logged time](#logged-time).
+  (`<listname>_Log.csv`, or per-task `<listname>\<taskID>_Log.csv` in separate mode) of individual
+  time entries, not part of the `.tdl` XML. Read and appended with the same fidelity discipline
+  (UTF-16, `TODOTIMELOG VERSION 1` + header, tab-separated rows, value encoding, atomic write); entries
+  can also be edited and deleted, preserving every untouched row verbatim — see
+  [Logged time](#logged-time).
 - Notes are the **`<COMMENTS>` child element** (not an attribute), with the format in `COMMENTSTYPE`.
   This server reads tasks in **any** comment format and **authors plain text, Markdown and HTML**;
   Markdown/HTML also expose their editable source for lossless round-trips — see

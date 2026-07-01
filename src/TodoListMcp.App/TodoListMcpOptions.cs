@@ -24,8 +24,25 @@ public sealed class TodoListMcpOptions
     /// <summary>Value written to LASTMODBY when this server changes a task.</summary>
     public string ModifiedBy { get; set; } = "TodoListMcp";
 
+    /// <summary>
+    /// Default time-log layout for lists that don't set their own <see cref="TodoFileEntry.LogMode"/>.
+    /// Mirrors ToDoList's global "log tasks separately" preference, which this server can't read, so
+    /// it's configured here instead. Defaults to <see cref="LogMode.Combined"/>.
+    /// </summary>
+    public LogMode DefaultLogMode { get; set; } = LogMode.Combined;
+
     /// <summary>The .tdl files this server is allowed to act on.</summary>
     public List<TodoFileEntry> Files { get; set; } = new();
+}
+
+/// <summary>How a list's logged-time entries are laid out on disk (see <see cref="TimeLogPaths"/>).</summary>
+public enum LogMode
+{
+    /// <summary>One combined <c>&lt;base&gt;_Log.csv</c> beside the <c>.tdl</c> (ToDoList's default).</summary>
+    Combined,
+
+    /// <summary>One <c>&lt;taskID&gt;_Log.csv</c> per task in a <c>&lt;base&gt;\</c> folder.</summary>
+    Separate,
 }
 
 /// <summary>A single configured ToDoList file.</summary>
@@ -39,4 +56,10 @@ public sealed class TodoFileEntry
 
     /// <summary>When true, this file is used when a tool call omits the list alias.</summary>
     public bool Default { get; set; }
+
+    /// <summary>
+    /// This list's time-log layout, overriding <see cref="TodoListMcpOptions.DefaultLogMode"/>. Null
+    /// (the default) inherits the global default.
+    /// </summary>
+    public LogMode? LogMode { get; set; }
 }

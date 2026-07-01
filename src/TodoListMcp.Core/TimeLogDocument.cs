@@ -110,6 +110,11 @@ public sealed class TimeLogDocument
     /// <summary>Saves to the given path atomically, as UTF-16 LE with BOM and LF line endings.</summary>
     public void SaveAs(string path)
     {
+        // Create the parent directory if needed — separate-mode logs live in a <base>\ folder that
+        // may not exist on the first write.
+        var dir = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+
         var tmp = path + ".tmp";
         File.WriteAllText(tmp, BuildText(), new UnicodeEncoding(bigEndian: false, byteOrderMark: true));
         if (File.Exists(path))
@@ -218,6 +223,19 @@ public sealed class TimeLogDocument
         _rows.RemoveAt(index);
         IsDirty = true;
         return removed;
+    }
+
+    /// <summary>
+    /// Counts the entries this selector matches in this document. Used to resolve a selector across
+    /// several per-task files (separate mode), where the single-match rule spans all of them.
+    /// </summary>
+    public int CountMatches(TimeLogSelector selector)
+    {
+        if (selector is null) throw new ArgumentNullException(nameof(selector));
+        if (!selector.HasAnyCriterion)
+            throw new ArgumentException(
+                "A time-log selector must supply at least one matching field.", nameof(selector));
+        return _rows.Count(r => Matches(r.Entry, selector));
     }
 
     /// <summary>
