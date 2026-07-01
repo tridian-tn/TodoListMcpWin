@@ -1,5 +1,6 @@
 using System.Xml.Linq;
 using TodoListMcp.Core;
+using TodoListMcp.Core.Model;
 
 namespace TodoListMcp.Core.Tests;
 
@@ -15,6 +16,8 @@ namespace TodoListMcp.Core.Tests;
 public class InternalFieldPreservationTests
 {
     private const string MetadataGuid = "FA40B83E-E934-D494-8FB3-8EC9748FA4E8";
+    private const string MetadataGuid2 = "B1C2D3E4-F5A6-4789-ABCD-EF0123456789";
+    private const string MetadataGuid3 = "C0FFEE00-DEAD-4BEE-8FAD-1234567890AB";
 
     /// <summary>A task carrying every internal field of interest, plus a couple of unknown attributes.</summary>
     private static TodoListDocument WithInternalFields() =>
@@ -102,6 +105,84 @@ public class InternalFieldPreservationTests
 
     private static string? RawCustomComments(XDocument doc, int id) =>
         doc.Descendants("TASK").First(t => (int)t.Attribute("ID")! == id).Element("CUSTOMCOMMENTS")?.Value;
+
+    // ---- multiple <METADATA> entries and mutations other than update -------------------------
+
+    /// <summary>
+    /// A two-task document whose first task carries the internal fields plus multiple plugin
+    /// metadata entries: two GUID-named attributes on one &lt;METADATA&gt; element and a second
+    /// &lt;METADATA&gt; element — the shape ToDoList produces when several plugins annotate a task.
+    /// The sibling (ID 2) gives move/dependency mutations something to target.
+    /// </summary>
+    private static TodoListDocument MultiMetadataDoc() =>
+        TodoListDocument.Parse(
+            $"""
+            <?xml version="1.0" encoding="utf-16"?>
+            <TODOLIST PROJECTNAME="P" NEXTUNIQUEID="3"><TASK ID="1" TITLE="T" REFID="42" ICONINDEX="38" COLOR="255" COMMENTSTYPE="PLAIN_TEXT"><COMMENTS>plain mirror</COMMENTS><CUSTOMCOMMENTS>opaque-plugin-blob</CUSTOMCOMMENTS><METADATA {MetadataGuid}="v1" {MetadataGuid2}="v2"/><METADATA {MetadataGuid3}="v3"/></TASK><TASK ID="2" TITLE="Other"/></TODOLIST>
+            """,
+            TestData.Clock);
+
+    /// <summary>Collects every GUID-named attribute across all &lt;METADATA&gt; elements of a task.</summary>
+    private static Dictionary<string, string> MetadataAttrs(XElement task) =>
+        task.Elements("METADATA")
+            .SelectMany(m => m.Attributes())
+            .ToDictionary(a => a.Name.LocalName, a => a.Value);
+
+    private static void AssertInternalFieldsIntact(TodoListDocument doc)
+    {
+        var task = Task(doc, 1);
+        Assert.Equal("42", (string?)task.Attribute("REFID"));
+        Assert.Equal("38", (string?)task.Attribute("ICONINDEX"));
+        Assert.Equal("255", (string?)task.Attribute("COLOR"));
+        Assert.Equal("opaque-plugin-blob", task.Element("CUSTOMCOMMENTS")?.Value);
+
+        // Both <METADATA> elements and all three GUID-named attributes survive.
+        Assert.Equal(2, task.Elements("METADATA").Count());
+        Assert.Equal(
+            new Dictionary<string, string> { [MetadataGuid] = "v1", [MetadataGuid2] = "v2", [MetadataGuid3] = "v3" },
+            MetadataAttrs(task));
+    }
+
+    [Fact]
+    public void Multiple_metadata_entries_survive_an_update()
+    {
+        var doc = MultiMetadataDoc();
+        doc.UpdateTask(1, new() { Title = "Renamed" });
+        AssertInternalFieldsIntact(doc);
+    }
+
+    // Every mutation edits the same XLinq tree in place, so the preservation guarantee is not
+    // specific to update_task; assert it holds through the structural and lifecycle mutations too.
+    [Fact]
+    public void Internal_fields_survive_complete() =>
+        AssertSurvives(d => d.CompleteTask(1));
+
+    [Fact]
+    public void Internal_fields_survive_reopen() =>
+        AssertSurvives(d => d.ReopenTask(1));
+
+    [Fact]
+    public void Internal_fields_survive_move() =>
+        AssertSurvives(d => d.MoveTask(1, newParentId: 2));
+
+    [Fact]
+    public void Internal_fields_survive_add_dependency() =>
+        AssertSurvives(d => d.AddDependency(1, dependsOnId: 2));
+
+    [Fact]
+    public void Internal_fields_survive_increment_time_spent() =>
+        AssertSurvives(d => d.IncrementTimeSpent(1, deltaHours: 2));
+
+    [Fact]
+    public void Internal_fields_survive_set_recurrence() =>
+        AssertSurvives(d => d.SetRecurrence(1, new() { Pattern = RecurrencePattern.EveryNDays, Interval = 3 }));
+
+    private static void AssertSurvives(Action<TodoListDocument> mutate)
+    {
+        var doc = MultiMetadataDoc();
+        mutate(doc);
+        AssertInternalFieldsIntact(doc);
+    }
 
     [Fact]
     public void Real_file_metadata_and_refid_survive_load_modify_save_reload()
