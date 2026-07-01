@@ -212,6 +212,86 @@ public class LogModeTests : IDisposable
         Assert.Empty(log.Warnings);
     }
 
+    [Fact]
+    public void LogTime_separate_mode_appends_successive_entries_to_the_same_task_file()
+    {
+        var (mgr, _) = Manager(LogMode.Separate);
+        mgr.LogTime("work", new LogTimeRequest { TaskId = 1, Hours = 1, Comment = "first" });
+        mgr.LogTime("work", new LogTimeRequest { TaskId = 1, Hours = 2, Comment = "second" });
+
+        // Both rows live in the one per-task file — the second write appends, not overwrites.
+        var entries = mgr.ReadLog("work", new TimeLogQuery { TaskId = 1 });
+        Assert.Equal(2, entries.Count);
+        Assert.Contains(entries, e => e.Comment == "first");
+        Assert.Contains(entries, e => e.Comment == "second");
+    }
+
+    [Fact]
+    public void LogTime_separate_mode_with_addToTimeSpent_still_increments_the_task()
+    {
+        var (mgr, _) = Manager(LogMode.Separate);
+        mgr.LogTime("work", new LogTimeRequest { TaskId = 1, Hours = 2, Comment = "w", AddToTimeSpent = true });
+
+        var task = mgr.Read("work", d => d.GetTask(1));
+        Assert.Equal(2.0, task!.TimeSpent);
+        Assert.True(File.Exists(TimeLogPaths.Separate(_tdl, 1)));
+    }
+
+    [Fact]
+    public void DeleteLogEntry_can_target_the_combined_file_in_a_mixed_layout()
+    {
+        // One entry in the combined file, one in a per-task file; delete the combined one and only
+        // the combined file is rewritten — exercising the resolver choosing it as the owner.
+        var (combined, _) = Manager(LogMode.Combined);
+        combined.LogTime("work", new LogTimeRequest { TaskId = 1, Hours = 1, Comment = "combined one" });
+
+        var (separate, _) = Manager(LogMode.Separate);
+        separate.LogTime("work", new LogTimeRequest { TaskId = 2, Hours = 2, Comment = "separate one" });
+
+        separate.DeleteLogEntry("work", new TimeLogSelector { TaskId = 1, Comment = "combined one" });
+
+        var remaining = separate.ReadLog("work", new TimeLogQuery());
+        Assert.Equal("separate one", Assert.Single(remaining).Comment);
+        Assert.True(File.Exists(TimeLogPaths.Separate(_tdl, 2)), "per-task file must be untouched");
+    }
+
+    [Fact]
+    public void ReadLog_applies_filters_across_the_merged_files()
+    {
+        // Entries spread across the combined file and per-task files; filters apply to the union.
+        var (combined, _) = Manager(LogMode.Combined);
+        combined.LogTime("work", new LogTimeRequest { TaskId = 1, Hours = 1, Comment = "c", Person = "alice" });
+
+        var (separate, _) = Manager(LogMode.Separate);
+        separate.LogTime("work", new LogTimeRequest { TaskId = 2, Hours = 2, Comment = "s", Person = "bob" });
+
+        Assert.Equal("c", Assert.Single(separate.ReadLog("work", new TimeLogQuery { TaskId = 1 })).Comment);
+        Assert.Equal("s", Assert.Single(separate.ReadLog("work", new TimeLogQuery { Person = "bob" })).Comment);
+        Assert.Equal(2, separate.ReadLog("work", new TimeLogQuery()).Count);
+    }
+
+    [Fact]
+    public void LogTime_warns_when_separate_mode_but_a_combined_file_exists()
+    {
+        // The reverse mismatch: a combined file is present but the list is configured Separate.
+        var (combinedMgr, _) = Manager(LogMode.Combined);
+        combinedMgr.LogTime("work", new LogTimeRequest { TaskId = 1, Hours = 1, Comment = "old combined" });
+        Assert.True(File.Exists(TimeLogPaths.Combined(_tdl)));
+
+        var (separate, log) = Manager(LogMode.Separate);
+        separate.LogTime("work", new LogTimeRequest { TaskId = 1, Hours = 1, Comment = "new separate" });
+
+        Assert.True(File.Exists(TimeLogPaths.Separate(_tdl, 1)));
+        Assert.Contains(log.Warnings, w => w.Contains("combined time-log file") && w.Contains("Separate"));
+    }
+
+    [Fact]
+    public void AllExisting_is_empty_when_no_log_files_exist()
+    {
+        Assert.Empty(TimeLogPaths.AllExisting(_tdl));
+        Assert.False(TimeLogPaths.SeparateFilesExist(_tdl));
+    }
+
     private const string MinimalTdl =
         "<?xml version=\"1.0\" encoding=\"utf-16\"?>" +
         "<TODOLIST PROJECTNAME=\"T\" NEXTUNIQUEID=\"3\">" +
