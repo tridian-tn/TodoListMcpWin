@@ -38,4 +38,16 @@ internal static class TestData
         Assert.True(File.Exists(path), $"Multi-format fixture not found at {path}");
         return path;
     }
+
+    /// <summary>
+    /// A real ToDoList 9.1 (APPVER 9.1.999.1) export authored via the app's recurrence UI, with one
+    /// task per recurrence pattern under a "Recurrence Tasks" parent (ID 26). Used to validate the
+    /// recurrence decoder against genuine on-disk encodings rather than hand-written XML.
+    /// </summary>
+    public static string RecurrenceFilePath()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "Assets", "Introduction-Recurrence.tdl");
+        Assert.True(File.Exists(path), $"Recurrence fixture not found at {path}");
+        return path;
+    }
 }
