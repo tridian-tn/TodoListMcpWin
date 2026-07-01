@@ -311,6 +311,48 @@ public class RecurrenceWriteTests
         Assert.False(r.PreserveComments);
     }
 
+    // ---- Completion guard --------------------------------------------------
+
+    [Fact]
+    public void Completing_a_recurring_task_is_refused()
+    {
+        var doc = OneTaskDoc();
+        doc.SetRecurrence(1, new() { Pattern = RecurrencePattern.EveryNDays, Interval = 1 });
+        Assert.Throws<RecurringTaskCompletionException>(() => doc.CompleteTask(1));
+        // The refusal leaves the task open (no done date stamped).
+        Assert.False(doc.GetTask(1)!.IsDone);
+    }
+
+    [Fact]
+    public void Clearing_recurrence_then_completing_works()
+    {
+        var doc = OneTaskDoc();
+        doc.SetRecurrence(1, new() { Pattern = RecurrencePattern.EveryNWeeks, Interval = 2 });
+        doc.ClearRecurrence(1);
+        var t = doc.CompleteTask(1);   // the escape hatch: end the series, then complete
+        Assert.True(t.IsDone);
+    }
+
+    [Fact]
+    public void A_once_recurrence_does_not_block_completion()
+    {
+        // RECURFREQ=0 (TDIR_ONCE) is not really recurring, so it must not trip the guard.
+        var doc = TodoListDocument.Parse(
+            "<?xml version=\"1.0\" encoding=\"utf-16\"?>" +
+            "<TODOLIST PROJECTNAME=\"W\" NEXTUNIQUEID=\"2\">" +
+            "<TASK ID=\"1\" TITLE=\"T\" POS=\"0\" POSSTRING=\"1\">" +
+            "<RECURRENCE RECURFREQ=\"0\">Once</RECURRENCE></TASK></TODOLIST>", TestData.Clock);
+        var t = doc.CompleteTask(1);
+        Assert.True(t.IsDone);
+    }
+
+    [Fact]
+    public void Completing_a_non_recurring_task_still_works()
+    {
+        var doc = OneTaskDoc();
+        Assert.True(doc.CompleteTask(1).IsDone);
+    }
+
     // ---- Fixture round-trip: encoder reproduces ToDoList's own bytes -------
 
     public static IEnumerable<object[]> PristinePatterns() => new[]

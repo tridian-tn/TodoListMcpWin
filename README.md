@@ -247,7 +247,7 @@ TodoListMcp.exe --disable-autostart
 | `search_tasks` | Filter by text, category, assignee, allocated-by, completion, flag, status, version, external ID, minimum priority/risk, or time estimate/spent range (in hours). |
 | `add_task` | Create a task (title, notes + `commentsFormat`, priority, risk, % done, time estimate/spent, due/start date, status, version, flag, external ID, categories, assignees/allocated-by, file links, parent/index). |
 | `update_task` | Change fields; only supplied parameters are touched (with explicit clear flags). Editing the notes of a task with formatted comments needs `replaceFormattedComments` — see [Task comments / notes](#task-comments--notes). |
-| `complete_task` / `reopen_task` | Toggle completion (`DONEDATE` + progress). |
+| `complete_task` / `reopen_task` | Toggle completion (`DONEDATE` + progress). `complete_task` refuses a recurring task — see [Recurrence](#recurrence). |
 | `delete_task` | Remove a task and its subtree. |
 | `move_task` | Re-parent and/or reorder a task. |
 | `add_dependency` / `remove_dependency` | Add or remove a task-ordering dependency (`DEPENDS`) on another task in the same list, with an optional lead-in/lag in days. |
@@ -404,8 +404,9 @@ removes the rule.
 
 The `Kth`-weekday and first/last-weekday patterns are **read-only** for now (they can be decoded but not
 authored). Setting recurrence does **not** advance the task — ToDoList advances a recurring task when
-*it* completes it; completing one through this server just writes `DONEDATE` and does not roll it
-forward.
+*it* completes it (reopening it for the next occurrence, or spawning the next task). Because this server
+doesn't run that engine, **`complete_task` refuses a recurring task**: complete it in the ToDoList app,
+or `clear_recurrence` first to end the series and then complete it here.
 
 ## Concurrency note
 
@@ -523,9 +524,10 @@ The engine mirrors how ToDoList actually stores data (verified against a real ex
   `clear_recurrence` author the common patterns — every N days/weekdays/weeks/months/years, every
   weekday, weekly-on-days, monthly-on-day, yearly-on-date — validating the rule against ToDoList's own
   checks and emitting the exact on-disk encoding (including `DHW`/`DHM` bitmasks). The `Kth`-weekday and
-  first/last-weekday patterns remain read-only. The server does **not** run the recurrence *engine*:
-  completing a recurring task here writes only `DONEDATE` and does **not** advance the series (that
-  happens only inside the ToDoList app). See [`docs/recurrence-spike.md`](docs/recurrence-spike.md).
+  first/last-weekday patterns remain read-only. The server does **not** run the recurrence *engine* (the
+  series only advances inside the ToDoList app), so **`complete_task` refuses a recurring task** rather
+  than silently ending the series — `clear_recurrence` first to complete it here. See
+  [`docs/recurrence-spike.md`](docs/recurrence-spike.md).
 - Completion is detected from **`DONEDATE`** (the source of truth). ToDoList's calculated
   **`GOODASDONE`** flag (set by the "treat parents with all subtasks completed as done" option) is
   surfaced read-only as `IsGoodAsDone`, and kept in sync when this server completes/reopens a task.
