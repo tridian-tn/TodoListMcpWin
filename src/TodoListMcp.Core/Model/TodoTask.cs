@@ -117,6 +117,13 @@ public sealed class TodoTask
     /// </summary>
     public IReadOnlyList<TaskDependency> Dependencies { get; init; } = Array.Empty<TaskDependency>();
 
+    /// <summary>
+    /// The task's recurrence rule (the &lt;RECURRENCE&gt; element) — how it repeats — or null when the
+    /// task does not recur. Read-only: this server does not yet author recurrence, and completing a
+    /// recurring task here does not advance the series (that happens only inside the ToDoList app).
+    /// </summary>
+    public TaskRecurrence? Recurrence { get; init; }
+
     /// <summary>1-based dotted hierarchy path, e.g. "2.1.3" (the POSSTRING attribute).</summary>
     public string Position { get; init; } = "";
 

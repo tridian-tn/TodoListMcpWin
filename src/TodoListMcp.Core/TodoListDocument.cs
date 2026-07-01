@@ -259,6 +259,7 @@ public sealed class TodoListDocument
         AllocatedBy = TrimToNull((string?)e.Attribute("ALLOCATEDBY")),
         FileLinks = ReadMulti(e, "FILEREFPATH", "FILEREFPATH", trim: false),
         Dependencies = ReadDepends(e, taskIds),
+        Recurrence = RecurrenceFormat.Read(e),
         Position = (string?)e.Attribute("POSSTRING") ?? "",
         Subtasks = includeSubtasks
             ? e.Elements("TASK").Select(child => Project(child, taskIds)).ToList()
