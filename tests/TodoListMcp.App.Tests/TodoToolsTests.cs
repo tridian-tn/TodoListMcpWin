@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using TodoListMcp.App;
 using TodoListMcp.App.Mcp;
+using TodoListMcp.Core;
 
 namespace TodoListMcp.App.Tests;
 
@@ -244,6 +245,21 @@ public class TodoToolsTests
         {
             Assert.Throws<ArgumentException>(() =>
                 tools.SetRecurrence(id: 1, pattern: "everyNDays", interval: 1, onRecur: "clone", list: "work"));
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
+    public void CompleteTask_refuses_a_recurring_task_through_the_tool_surface()
+    {
+        var (tools, dir) = NewTools();
+        try
+        {
+            tools.SetRecurrence(id: 1, pattern: "everyNDays", interval: 1, list: "work");
+            Assert.Throws<RecurringTaskCompletionException>(() => tools.CompleteTask(id: 1, list: "work"));
+            // After clearing the recurrence, completion goes through.
+            tools.ClearRecurrence(id: 1, list: "work");
+            Assert.True(tools.CompleteTask(id: 1, list: "work").IsDone);
         }
         finally { Directory.Delete(dir, recursive: true); }
     }

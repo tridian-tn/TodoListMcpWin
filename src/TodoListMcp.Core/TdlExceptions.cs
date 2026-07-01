@@ -43,6 +43,23 @@ public sealed class TaskLockedException : Exception
 }
 
 /// <summary>
+/// Thrown when a caller tries to complete a recurring task. This server does not run ToDoList's
+/// recurrence engine, so stamping a done date here would end the series rather than advancing it (a
+/// reuse rule reopens for the next occurrence; a create-new rule spawns the next task). The caller is
+/// pointed at completing it in the app, or clearing the recurrence first to genuinely end the series.
+/// </summary>
+public sealed class RecurringTaskCompletionException : Exception
+{
+    public RecurringTaskCompletionException(int id)
+        : base($"Task with ID {id} recurs. Completing it here would only set its done date — it would "
+             + "not advance the series the way ToDoList does (reopen it for the next occurrence, or "
+             + "create the next task). Complete it in the ToDoList app, or call clear_recurrence first "
+             + "to end the series and then complete it.")
+        => TaskId = id;
+    public int TaskId { get; }
+}
+
+/// <summary>
 /// Thrown when a caller tries to overwrite a task's formatted (non-plain-text) comments without
 /// opting in. Replacing them would discard the rich &lt;CUSTOMCOMMENTS&gt; payload ToDoList stores
 /// for rich text/HTML/Markdown/spreadsheet notes.

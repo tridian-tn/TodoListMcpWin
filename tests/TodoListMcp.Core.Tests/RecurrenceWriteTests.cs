@@ -311,6 +311,87 @@ public class RecurrenceWriteTests
         Assert.False(r.PreserveComments);
     }
 
+    // ---- Completion guard --------------------------------------------------
+
+    [Fact]
+    public void Completing_a_recurring_task_is_refused()
+    {
+        var doc = OneTaskDoc();
+        doc.SetRecurrence(1, new() { Pattern = RecurrencePattern.EveryNDays, Interval = 1 });
+        Assert.Throws<RecurringTaskCompletionException>(() => doc.CompleteTask(1));
+        // The refusal leaves the task open (no done date stamped).
+        Assert.False(doc.GetTask(1)!.IsDone);
+    }
+
+    [Fact]
+    public void Clearing_recurrence_then_completing_works()
+    {
+        var doc = OneTaskDoc();
+        doc.SetRecurrence(1, new() { Pattern = RecurrencePattern.EveryNWeeks, Interval = 2 });
+        doc.ClearRecurrence(1);
+        var t = doc.CompleteTask(1);   // the escape hatch: end the series, then complete
+        Assert.True(t.IsDone);
+    }
+
+    [Fact]
+    public void A_once_recurrence_does_not_block_completion()
+    {
+        // RECURFREQ=0 (TDIR_ONCE) is not really recurring, so it must not trip the guard.
+        var doc = TodoListDocument.Parse(
+            "<?xml version=\"1.0\" encoding=\"utf-16\"?>" +
+            "<TODOLIST PROJECTNAME=\"W\" NEXTUNIQUEID=\"2\">" +
+            "<TASK ID=\"1\" TITLE=\"T\" POS=\"0\" POSSTRING=\"1\">" +
+            "<RECURRENCE RECURFREQ=\"0\">Once</RECURRENCE></TASK></TODOLIST>", TestData.Clock);
+        var t = doc.CompleteTask(1);
+        Assert.True(t.IsDone);
+    }
+
+    [Fact]
+    public void Completing_a_non_recurring_task_still_works()
+    {
+        var doc = OneTaskDoc();
+        Assert.True(doc.CompleteTask(1).IsDone);
+    }
+
+    [Fact]
+    public void Completing_a_task_with_a_deprecated_recurrence_is_also_refused()
+    {
+        // A deprecated frequency still decodes to a (non-null) recurrence, so the guard keys on the
+        // presence of an active rule, not on whether we can author its pattern.
+        var doc = TodoListDocument.Parse(
+            "<?xml version=\"1.0\" encoding=\"utf-16\"?>" +
+            "<TODOLIST PROJECTNAME=\"W\" NEXTUNIQUEID=\"2\">" +
+            "<TASK ID=\"1\" TITLE=\"T\" POS=\"0\" POSSTRING=\"1\">" +
+            "<RECURRENCE RECURFREQ=\"6\" RECURSPECIFIC1=\"1\">?</RECURRENCE></TASK></TODOLIST>", TestData.Clock);
+        Assert.Throws<RecurringTaskCompletionException>(() => doc.CompleteTask(1));
+    }
+
+    [Fact]
+    public void Reopening_a_recurring_task_is_allowed()
+    {
+        // The guard is completion-only: a recurring task that is done on disk can still be reopened.
+        var doc = TodoListDocument.Parse(
+            "<?xml version=\"1.0\" encoding=\"utf-16\"?>" +
+            "<TODOLIST PROJECTNAME=\"W\" NEXTUNIQUEID=\"2\">" +
+            "<TASK ID=\"1\" TITLE=\"T\" DONEDATE=\"45000.5\" PERCENTDONE=\"100\" POS=\"0\" POSSTRING=\"1\">" +
+            "<RECURRENCE RECURFREQ=\"1\" RECURSPECIFIC1=\"1\">Daily</RECURRENCE></TASK></TODOLIST>", TestData.Clock);
+        var t = doc.ReopenTask(1);
+        Assert.False(t.IsDone);
+        Assert.NotNull(t.Recurrence);   // reopening leaves the rule intact
+    }
+
+    [Fact]
+    public void A_locked_recurring_task_reports_the_lock_first()
+    {
+        // Lock is checked before the recurrence guard, so a locked recurring task surfaces the lock.
+        var doc = TodoListDocument.Parse(
+            "<?xml version=\"1.0\" encoding=\"utf-16\"?>" +
+            "<TODOLIST PROJECTNAME=\"W\" NEXTUNIQUEID=\"2\">" +
+            "<TASK ID=\"1\" TITLE=\"T\" LOCK=\"1\" POS=\"0\" POSSTRING=\"1\">" +
+            "<RECURRENCE RECURFREQ=\"1\" RECURSPECIFIC1=\"1\">Daily</RECURRENCE></TASK></TODOLIST>", TestData.Clock);
+        Assert.Throws<TaskLockedException>(() => doc.CompleteTask(1));
+    }
+
     // ---- Fixture round-trip: encoder reproduces ToDoList's own bytes -------
 
     public static IEnumerable<object[]> PristinePatterns() => new[]

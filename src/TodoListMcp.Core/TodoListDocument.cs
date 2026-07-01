@@ -548,6 +548,11 @@ public sealed class TodoListDocument
     {
         var e = FindTaskElement(id) ?? throw new TaskNotFoundException(id);
         EnsureNotLocked(e);
+        // A recurring task can't be faithfully completed by stamping a done date: ToDoList advances the
+        // series on completion (reopen or spawn the next), which this server deliberately doesn't do.
+        // Refuse with guidance rather than silently ending the series. A "once" rule reads as null here.
+        if (RecurrenceFormat.Read(e) is not null)
+            throw new RecurringTaskCompletionException(id);
         var now = _clock.Now;
         SetOaDate(e, "DONEDATE", now);
         e.SetAttributeValue("DONEDATESTRING", FormatStamp(now));

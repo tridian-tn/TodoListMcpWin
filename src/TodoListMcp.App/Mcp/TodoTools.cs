@@ -197,7 +197,9 @@ public sealed class TodoTools
         }));
 
     [McpServerTool(Name = "complete_task")]
-    [Description("Mark a task as done (sets the done date and 100% progress).")]
+    [Description("Mark a task as done (sets the done date and 100% progress). Refuses a recurring task, "
+        + "since only ToDoList can advance the series on completion — complete it in the app, or "
+        + "clear_recurrence first to end the series.")]
     public TodoTask CompleteTask(
         [Description("The task ID.")] int id,
         [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
