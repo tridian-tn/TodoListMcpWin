@@ -120,7 +120,8 @@ public class RecurrenceTests
         // An empty weekday mask (spec2 = 0) — the description omits the day list rather than breaking.
         var r = Read("<RECURRENCE RECURFREQ=\"2\" RECURSPECIFIC1=\"2\" RECURSPECIFIC2=\"0\">Weekly</RECURRENCE>");
         Assert.Equal("weeklyOnDays", r.Pattern);
-        Assert.Empty(r.DaysOfWeek!);
+        Assert.NotNull(r.DaysOfWeek);
+        Assert.Empty(r.DaysOfWeek);
         Assert.Equal("Weekly, every 2 weeks", r.Description);
     }
 
@@ -220,7 +221,8 @@ public class RecurrenceTests
     {
         // spec1 = 0 is neither a plain index (1–12) nor a DHM bit — no month is surfaced.
         var r = Read("<RECURRENCE RECURFREQ=\"4\" RECURSPECIFIC1=\"0\" RECURSPECIFIC2=\"5\">Yearly</RECURRENCE>");
-        Assert.Empty(r.Months!);
+        Assert.NotNull(r.Months);
+        Assert.Empty(r.Months);
         Assert.Equal(5, r.DayOfMonth);
         Assert.Equal("Yearly on day 5 of the given month", r.Description);
     }

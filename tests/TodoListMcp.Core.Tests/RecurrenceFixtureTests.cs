@@ -11,11 +11,19 @@ namespace TodoListMcp.Core.Tests;
 /// </summary>
 public class RecurrenceFixtureTests
 {
-    private static readonly TodoListDocument Doc = TodoListDocument.Load(TestData.RecurrenceFilePath());
+    // Lazy so a load failure surfaces as the actual exception on the touching test, not a
+    // TypeInitializationException from a static constructor. Tests within a class run sequentially,
+    // so the null-coalescing assignment needs no extra locking.
+    private static TodoListDocument? _doc;
+    private static TodoListDocument Doc => _doc ??= TodoListDocument.Load(TestData.RecurrenceFilePath());
 
-    private static TaskRecurrence Recur(int id) =>
-        Doc.GetTask(id)?.Recurrence
-        ?? throw new Xunit.Sdk.XunitException($"Task {id} had no recurrence.");
+    private static TaskRecurrence Recur(int id)
+    {
+        var task = Doc.GetTask(id)
+            ?? throw new Xunit.Sdk.XunitException($"Task {id} was not found in the fixture.");
+        return task.Recurrence
+            ?? throw new Xunit.Sdk.XunitException($"Task {id} had no recurrence.");
+    }
 
     [Fact]
     public void Parent_task_does_not_recur()
