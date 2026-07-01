@@ -71,6 +71,39 @@ public class InternalFieldPreservationTests
     }
 
     [Fact]
+    public void Opaque_custom_comments_survive_byte_identical_across_an_unrelated_update()
+    {
+        // The risk case: task 27 carries a genuine rich (RTF) <CUSTOMCOMMENTS> payload this server
+        // can't re-author. Touching an unrelated field must leave it byte-identical on real disk —
+        // if it were ever corrupted, the content is unrecoverable.
+        var path = TestData.MultiCommentFormatFilePath();
+        var original = RawCustomComments(XDocument.Load(path), 27);
+        Assert.False(string.IsNullOrEmpty(original));
+
+        var doc = TodoListDocument.Load(path);
+        doc.UpdateTask(27, new() { Title = "Touched by MCP" });   // no comments in the request
+
+        var tmp = Path.Combine(Path.GetTempPath(), "tdlmcp_opaque_" + Guid.NewGuid().ToString("N") + ".tdl");
+        try
+        {
+            doc.SaveAs(tmp);
+            var reloaded = XDocument.Load(tmp);
+            var task = reloaded.Descendants("TASK").First(t => (int)t.Attribute("ID")! == 27);
+
+            Assert.Equal("Touched by MCP", (string?)task.Attribute("TITLE"));
+            Assert.Equal(original, RawCustomComments(reloaded, 27));   // payload untouched, byte for byte
+            Assert.NotNull((string?)task.Attribute("REFID"));
+        }
+        finally
+        {
+            File.Delete(tmp);
+        }
+    }
+
+    private static string? RawCustomComments(XDocument doc, int id) =>
+        doc.Descendants("TASK").First(t => (int)t.Attribute("ID")! == id).Element("CUSTOMCOMMENTS")?.Value;
+
+    [Fact]
     public void Real_file_metadata_and_refid_survive_load_modify_save_reload()
     {
         // Introduction.tdl is a genuine ToDoList export: task 24 carries a plugin <METADATA> blob
