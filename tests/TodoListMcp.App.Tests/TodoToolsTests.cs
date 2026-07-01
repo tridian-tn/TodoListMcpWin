@@ -225,6 +225,30 @@ public class TodoToolsTests
     }
 
     [Fact]
+    public void SetRecurrence_rejects_an_unknown_recalcFrom()
+    {
+        var (tools, dir) = NewTools();
+        try
+        {
+            Assert.Throws<ArgumentException>(() =>
+                tools.SetRecurrence(id: 1, pattern: "everyNDays", interval: 1, recalcFrom: "whenever", list: "work"));
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
+    public void SetRecurrence_rejects_an_unknown_onRecur()
+    {
+        var (tools, dir) = NewTools();
+        try
+        {
+            Assert.Throws<ArgumentException>(() =>
+                tools.SetRecurrence(id: 1, pattern: "everyNDays", interval: 1, onRecur: "clone", list: "work"));
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
     public void ClearRecurrence_removes_a_rule_through_the_tool_surface()
     {
         var (tools, dir) = NewTools();

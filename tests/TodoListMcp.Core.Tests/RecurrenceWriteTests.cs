@@ -193,6 +193,16 @@ public class RecurrenceWriteTests
         Assert.Throws<ArgumentException>(() =>
             Built(new() { Pattern = RecurrencePattern.EveryNDays, Interval = 1, Occurrences = 0 }));
 
+    [Fact]
+    public void Weekly_with_an_explicit_non_positive_interval_is_rejected() =>
+        Assert.Throws<ArgumentException>(() =>
+            Built(new() { Pattern = RecurrencePattern.WeeklyOnDays, Interval = 0, DaysOfWeek = new[] { "Monday" } }));
+
+    [Fact]
+    public void Monthly_on_day_with_an_explicit_non_positive_interval_is_rejected() =>
+        Assert.Throws<ArgumentException>(() =>
+            Built(new() { Pattern = RecurrencePattern.MonthlyOnDay, Interval = 0, DayOfMonth = 15 }));
+
     // ---- SetRecurrence / ClearRecurrence mutations -------------------------
 
     [Fact]
@@ -256,6 +266,49 @@ public class RecurrenceWriteTests
         var doc = OneTaskDoc();
         doc.ClearRecurrence(1);
         Assert.False(doc.IsDirty);
+    }
+
+    [Fact]
+    public void Set_recurrence_on_a_missing_task_throws()
+    {
+        var doc = OneTaskDoc();
+        Assert.Throws<TaskNotFoundException>(() =>
+            doc.SetRecurrence(99, new() { Pattern = RecurrencePattern.EveryNDays, Interval = 1 }));
+    }
+
+    [Fact]
+    public void Clear_recurrence_on_a_missing_task_throws()
+    {
+        var doc = OneTaskDoc();
+        Assert.Throws<TaskNotFoundException>(() => doc.ClearRecurrence(99));
+    }
+
+    [Fact]
+    public void Authored_rule_reads_back_through_the_decoder()
+    {
+        // Write↔read symmetry: what the writer emits must decode to the same rule (the fixture pins the
+        // raw bytes; this pins the semantic round-trip, including the bookkeeping fields).
+        var doc = OneTaskDoc();
+        doc.SetRecurrence(1, new()
+        {
+            Pattern = RecurrencePattern.MonthlyOnDay,
+            Interval = 2,
+            DayOfMonth = 15,
+            RecalcFrom = RecurrenceRecalcFrom.DoneDate,
+            OnRecur = RecurrenceReuse.Ask,
+            Occurrences = 5,
+            PreserveComments = false,
+        });
+
+        var r = doc.GetTask(1)!.Recurrence!;
+        Assert.Equal("monthlyOnDay", r.Pattern);
+        Assert.Equal(2, r.Interval);
+        Assert.Equal(15, r.DayOfMonth);
+        Assert.Equal("doneDate", r.RecalculateFrom);
+        Assert.Equal("ask", r.OnRecur);
+        Assert.Equal(5, r.TotalOccurrences);
+        Assert.Equal(5, r.RemainingOccurrences);
+        Assert.False(r.PreserveComments);
     }
 
     // ---- Fixture round-trip: encoder reproduces ToDoList's own bytes -------
