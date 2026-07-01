@@ -485,6 +485,13 @@ The engine mirrors how ToDoList actually stores data (verified against a real ex
   every dependent when their target is deleted** — both mirroring ToDoList (a plain round-trip keeps a
   stale reference on disk until a delete removes it). Cross-tasklist (`tasklist?id`) references are
   preserved on round-trip but not surfaced or authored.
+- Recurrence is a **`<RECURRENCE>`** element encoding a rule as three coded integers (`RECURFREQ` +
+  `RECURSPECIFIC1`/`2`) plus bookkeeping attributes. It is **decoded read-only** onto `Recurrence` —
+  every frequency (daily/weekly/monthly/yearly and their variants) is surfaced as a machine `Pattern`,
+  a human `Description`, and structured fields (interval, weekdays, day-of-month, months, etc.), with
+  deprecated/unknown frequencies reported as `unsupported`. The server does **not** author recurrence,
+  and completing a recurring task here writes only `DONEDATE` — it does **not** advance the series
+  (that happens only inside the ToDoList app). See [`docs/recurrence-spike.md`](docs/recurrence-spike.md).
 - Completion is detected from **`DONEDATE`** (the source of truth). ToDoList's calculated
   **`GOODASDONE`** flag (set by the "treat parents with all subtasks completed as done" option) is
   surfaced read-only as `IsGoodAsDone`, and kept in sync when this server completes/reopens a task.
