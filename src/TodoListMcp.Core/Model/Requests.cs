@@ -166,6 +166,76 @@ public sealed class UpdateTaskRequest
     public IReadOnlyList<string>? FileLinks { get; init; }
 }
 
+/// <summary>The recurrence patterns this server can author (the common, unambiguous subset). The
+/// Kth-weekday and first/last-weekday patterns are read-only for now.</summary>
+public enum RecurrencePattern
+{
+    /// <summary>Every N days (N = <see cref="SetRecurrenceRequest.Interval"/>).</summary>
+    EveryNDays,
+    /// <summary>Every weekday (Monday–Friday).</summary>
+    EveryWeekday,
+    /// <summary>Every N weekdays.</summary>
+    EveryNWeekdays,
+    /// <summary>On the given <see cref="SetRecurrenceRequest.DaysOfWeek"/>, every N weeks.</summary>
+    WeeklyOnDays,
+    /// <summary>Every N weeks (no specific days).</summary>
+    EveryNWeeks,
+    /// <summary>On a day of the month, every N months.</summary>
+    MonthlyOnDay,
+    /// <summary>Every N months.</summary>
+    EveryNMonths,
+    /// <summary>On a day of the given <see cref="SetRecurrenceRequest.Months"/>, yearly.</summary>
+    YearlyOnDate,
+    /// <summary>Every N years.</summary>
+    EveryNYears,
+}
+
+/// <summary>What the next occurrence is calculated from (ToDoList's RECURFROM).</summary>
+public enum RecurrenceRecalcFrom { DueDate, DoneDate, StartDate }
+
+/// <summary>What happens when the task recurs (ToDoList's RECURREUSE).</summary>
+public enum RecurrenceReuse { Reuse, CreateNew, Ask }
+
+/// <summary>
+/// Parameters for setting (or replacing) a task's recurrence rule. Only the fields the chosen
+/// <see cref="Pattern"/> needs are read; the rest are ignored. Validated against ToDoList's own rules
+/// (<c>CRecurrence::IsValidRegularity</c>) before writing, so an invalid rule is rejected rather than
+/// silently dropped by the app.
+/// </summary>
+public sealed class SetRecurrenceRequest
+{
+    public required RecurrencePattern Pattern { get; init; }
+
+    /// <summary>
+    /// The interval N for the "every N …" patterns (days/weekdays/weeks/months/years), where it is
+    /// required and must be ≥ 1. For <see cref="RecurrencePattern.WeeklyOnDays"/> and
+    /// <see cref="RecurrencePattern.MonthlyOnDay"/> it is the (optional) weeks/months between
+    /// occurrences and defaults to 1; a supplied value must still be ≥ 1.
+    /// </summary>
+    public int? Interval { get; init; }
+
+    /// <summary>Weekday names (e.g. "Monday", or "Mon") for <see cref="RecurrencePattern.WeeklyOnDays"/>.</summary>
+    public IReadOnlyList<string>? DaysOfWeek { get; init; }
+
+    /// <summary>Day of the month (1–31) for <see cref="RecurrencePattern.MonthlyOnDay"/> / <see cref="RecurrencePattern.YearlyOnDate"/>.</summary>
+    public int? DayOfMonth { get; init; }
+
+    /// <summary>Month names (e.g. "March", or "Mar") for <see cref="RecurrencePattern.YearlyOnDate"/>.</summary>
+    public IReadOnlyList<string>? Months { get; init; }
+
+    /// <summary>What the next occurrence is calculated from. Defaults to the due date.</summary>
+    public RecurrenceRecalcFrom RecalcFrom { get; init; } = RecurrenceRecalcFrom.DueDate;
+
+    /// <summary>What happens when the task recurs. Defaults to reusing the same task.</summary>
+    public RecurrenceReuse OnRecur { get; init; } = RecurrenceReuse.Reuse;
+
+    /// <summary>Total number of occurrences the series should run for (≥ 1); null means unlimited.</summary>
+    public int? Occurrences { get; init; }
+
+    /// <summary>Whether the task's comments carry across each recurrence. Defaults to true.</summary>
+    public bool PreserveComments { get; init; } = true;
+}
+
 /// <summary>
 /// Parameters for appending one entry to the time-log sidecar. Mirrors ToDoList's "Add Logged
 /// Time" action: an entry is valid when it has a comment, or a non-zero period (hours with

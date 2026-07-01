@@ -243,6 +243,44 @@ public sealed class TodoTools
         [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
         _manager.Write(list, d => d.RemoveDependency(id, dependsOnId));
 
+    [McpServerTool(Name = "set_recurrence")]
+    [Description("Set or replace a task's recurrence rule. Choose a pattern and supply the fields it needs: "
+        + "everyNDays/everyNWeekdays/everyNWeeks/everyNMonths/everyNYears need interval; everyWeekday needs nothing; "
+        + "weeklyOnDays needs daysOfWeek; monthlyOnDay needs dayOfMonth; yearlyOnDate needs months and dayOfMonth. "
+        + "For weeklyOnDays and monthlyOnDay, interval (weeks/months between occurrences) is optional and defaults to 1. "
+        + "Note: setting recurrence does not advance the task; ToDoList does that when you complete it in the app.")]
+    public TodoTask SetRecurrence(
+        [Description("The task ID.")] int id,
+        [Description("Pattern: everyNDays, everyWeekday, everyNWeekdays, weeklyOnDays, everyNWeeks, monthlyOnDay, everyNMonths, yearlyOnDate, or everyNYears.")] string pattern,
+        [Description("Interval N for the 'every N …' patterns (must be >= 1).")] int? interval = null,
+        [Description("Weekday names for weeklyOnDays, e.g. [\"Monday\",\"Wednesday\"] (full names or 3-letter abbreviations).")] string[]? daysOfWeek = null,
+        [Description("Day of the month (1-31) for monthlyOnDay / yearlyOnDate.")] int? dayOfMonth = null,
+        [Description("Month names for yearlyOnDate, e.g. [\"March\"] (full names or 3-letter abbreviations).")] string[]? months = null,
+        [Description("What the next occurrence is calculated from: dueDate (default), doneDate, or startDate.")] string? recalcFrom = null,
+        [Description("What happens on recurrence: reuse (default), createNew, or ask.")] string? onRecur = null,
+        [Description("Total number of occurrences to run for (>= 1). Omit for unlimited.")] int? occurrences = null,
+        [Description("Whether comments carry across each recurrence. Default true.")] bool preserveComments = true,
+        [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
+        _manager.Write(list, d => d.SetRecurrence(id, new SetRecurrenceRequest
+        {
+            Pattern = ParseRecurrencePattern(pattern),
+            Interval = interval,
+            DaysOfWeek = daysOfWeek,
+            DayOfMonth = dayOfMonth,
+            Months = months,
+            RecalcFrom = ParseRecalcFrom(recalcFrom),
+            OnRecur = ParseReuse(onRecur),
+            Occurrences = occurrences,
+            PreserveComments = preserveComments,
+        }));
+
+    [McpServerTool(Name = "clear_recurrence")]
+    [Description("Remove a task's recurrence rule. No-op if the task doesn't recur.")]
+    public TodoTask ClearRecurrence(
+        [Description("The task ID.")] int id,
+        [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
+        _manager.Write(list, d => d.ClearRecurrence(id));
+
     [McpServerTool(Name = "log_time")]
     [Description("Append a time-log entry to the list's _Log.csv sidecar (distinct from a task's time-spent attribute). Logs against a task, or task-less when taskId is omitted. An entry needs a comment, or non-zero hours over a valid period. Optionally also increments the task's time spent.")]
     public TimeLogEntry LogTime(
@@ -372,6 +410,45 @@ public sealed class TodoTools
         throw new ArgumentException(
             $"Unknown time unit '{value}' for {paramName}. Use minutes/hours/days/weekdays/weeks/months/years (or I/H/D/K/W/M/Y).");
     }
+
+    private static RecurrencePattern ParseRecurrencePattern(string? value) =>
+        value?.Trim().ToLowerInvariant() switch
+        {
+            "everyndays" => RecurrencePattern.EveryNDays,
+            "everyweekday" => RecurrencePattern.EveryWeekday,
+            "everynweekdays" => RecurrencePattern.EveryNWeekdays,
+            "weeklyondays" => RecurrencePattern.WeeklyOnDays,
+            "everynweeks" => RecurrencePattern.EveryNWeeks,
+            "monthlyonday" => RecurrencePattern.MonthlyOnDay,
+            "everynmonths" => RecurrencePattern.EveryNMonths,
+            "yearlyondate" => RecurrencePattern.YearlyOnDate,
+            "everynyears" => RecurrencePattern.EveryNYears,
+            // Recognised by the reader but not yet authorable — give a distinct, accurate message.
+            "monthlybyweekday" or "yearlybyweekday" or "monthlyonfirstlastweekday" => throw new ArgumentException(
+                $"Recurrence pattern '{value}' can be read but not authored yet. Authorable patterns: everyNDays, "
+                + "everyWeekday, everyNWeekdays, weeklyOnDays, everyNWeeks, monthlyOnDay, everyNMonths, yearlyOnDate, everyNYears."),
+            _ => throw new ArgumentException(
+                $"Unknown recurrence pattern '{value}'. Use one of: everyNDays, everyWeekday, everyNWeekdays, "
+                + "weeklyOnDays, everyNWeeks, monthlyOnDay, everyNMonths, yearlyOnDate, everyNYears."),
+        };
+
+    private static RecurrenceRecalcFrom ParseRecalcFrom(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? RecurrenceRecalcFrom.DueDate : value.Trim().ToLowerInvariant() switch
+        {
+            "duedate" or "due" => RecurrenceRecalcFrom.DueDate,
+            "donedate" or "done" or "completion" => RecurrenceRecalcFrom.DoneDate,
+            "startdate" or "start" => RecurrenceRecalcFrom.StartDate,
+            _ => throw new ArgumentException($"Unknown recalcFrom '{value}'. Use dueDate, doneDate, or startDate."),
+        };
+
+    private static RecurrenceReuse ParseReuse(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? RecurrenceReuse.Reuse : value.Trim().ToLowerInvariant() switch
+        {
+            "reuse" => RecurrenceReuse.Reuse,
+            "createnew" or "create" or "new" => RecurrenceReuse.CreateNew,
+            "ask" => RecurrenceReuse.Ask,
+            _ => throw new ArgumentException($"Unknown onRecur '{value}'. Use reuse, createNew, or ask."),
+        };
 
     private static CommentContentFormat ParseCommentsFormat(string? value)
     {

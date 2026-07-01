@@ -1,9 +1,11 @@
 # Spike: recurring tasks (`<RECURRENCE>`)
 
-> **Status: phase 1 implemented (read-only decode).** Findings for
+> **Status: phase 1 shipped; phase 2 writer in progress.** Findings for
 > [issue #11](https://github.com/tridian-tn/TodoListMcpWin/issues/11) (follow-up to #6, Tier 4). The
-> read-only decode recommended below now ships as `RecurrenceFormat` → `TodoTask.Recurrence`; the
-> constrained writer and the complete-a-recurring-task decision remain phase 2. Verified against the
+> read-only decode ships as `RecurrenceFormat.Read` → `TodoTask.Recurrence`; the constrained writer
+> (`RecurrenceFormat.Build` → `set_recurrence`/`clear_recurrence`) covers the common patterns, deferring
+> the `Kth`-weekday and first/last-weekday cases. The complete-a-recurring-task guard (refuse with
+> guidance) is the remaining phase-2 step. Verified against the
 > [`abstractspoon/ToDoList_9.2`](https://github.com/abstractspoon/ToDoList_9.2) source.
 
 ## How ToDoList stores recurrence

@@ -207,6 +207,131 @@ public static class RecurrenceFormat
         }
     }
 
+    /// <summary>
+    /// Builds a &lt;RECURRENCE&gt; element from a <see cref="SetRecurrenceRequest"/>, validated against
+    /// ToDoList's own rules so an invalid rule is rejected here rather than silently dropped by the app.
+    /// Emits the raw TDIR ordinal, the per-frequency spec payload (incl. DHW/DHM bitmasks), the five
+    /// bookkeeping attributes and the human-readable label body — matching what ToDoList writes.
+    /// </summary>
+    public static XElement Build(SetRecurrenceRequest req)
+    {
+        var (freq, spec1, spec2, label) = Encode(req);
+
+        var occurrences = req.Occurrences;
+        if (occurrences is int n && n < 1)
+            throw new ArgumentException("Occurrences must be at least 1.", nameof(req.Occurrences));
+        var num = occurrences ?? OccursInfinitely;
+
+        // Attribute order matches ToDoList's own output.
+        return new XElement("RECURRENCE",
+            new XAttribute("RECURFREQ", freq),
+            new XAttribute("RECURSPECIFIC1", spec1),
+            new XAttribute("RECURSPECIFIC2", spec2),
+            new XAttribute("RECURREUSE", req.OnRecur switch
+            {
+                RecurrenceReuse.CreateNew => 1,
+                RecurrenceReuse.Ask => 2,
+                _ => 0,
+            }),
+            new XAttribute("RECURFROM", req.RecalcFrom switch
+            {
+                RecurrenceRecalcFrom.DoneDate => 0,
+                RecurrenceRecalcFrom.StartDate => 2,
+                _ => 1,
+            }),
+            new XAttribute("RECURNUM", num),
+            new XAttribute("RECURREMAINING", num),
+            new XAttribute("RECURPRESERVECOMMENTS", req.PreserveComments ? 1 : 0),
+            label);
+    }
+
+    private static (int Freq, int Spec1, int Spec2, string Label) Encode(SetRecurrenceRequest req)
+    {
+        switch (req.Pattern)
+        {
+            case RecurrencePattern.EveryNDays:
+                return (FreqEveryNDays, PositiveInterval(req), 0, "Daily");
+            case RecurrencePattern.EveryWeekday:
+                return (FreqEveryWeekday, 0, 0, "Daily");
+            case RecurrencePattern.EveryNWeekdays:
+                return (FreqEveryNWeekdays, PositiveInterval(req), 0, "Daily");
+            case RecurrencePattern.WeeklyOnDays:
+                // The days are the primary spec; the every-N-weeks interval defaults to 1.
+                return (FreqWeeklyOnDays, OptionalInterval(req), EncodeWeekdays(req.DaysOfWeek), "Weekly");
+            case RecurrencePattern.EveryNWeeks:
+                return (FreqEveryNWeeks, PositiveInterval(req), 0, "Weekly");
+            case RecurrencePattern.MonthlyOnDay:
+                // The day-of-month is the primary spec; the every-N-months interval defaults to 1.
+                return (FreqMonthlyOnDay, OptionalInterval(req), DayOfMonth(req), "Monthly");
+            case RecurrencePattern.EveryNMonths:
+                return (FreqEveryNMonths, PositiveInterval(req), 0, "Monthly");
+            case RecurrencePattern.YearlyOnDate:
+                return (FreqYearlyOnDate, EncodeMonths(req.Months), DayOfMonth(req), "Yearly");
+            case RecurrencePattern.EveryNYears:
+                return (FreqEveryNYears, PositiveInterval(req), 0, "Yearly");
+            default:
+                throw new ArgumentOutOfRangeException(nameof(req.Pattern), req.Pattern, "Unsupported recurrence pattern.");
+        }
+    }
+
+    private static int PositiveInterval(SetRecurrenceRequest req) =>
+        req.Interval is int n && n > 0
+            ? n
+            : throw new ArgumentException($"Pattern '{req.Pattern}' requires an interval of at least 1.", nameof(req.Interval));
+
+    /// <summary>Interval for patterns where it's secondary (weekly-on-days, monthly-on-day): defaults to
+    /// 1 when omitted, but a supplied value must still be ≥ 1.</summary>
+    private static int OptionalInterval(SetRecurrenceRequest req) =>
+        req.Interval switch
+        {
+            null => 1,
+            int n when n > 0 => n,
+            _ => throw new ArgumentException($"Pattern '{req.Pattern}' interval must be at least 1.", nameof(req.Interval)),
+        };
+
+    private static int DayOfMonth(SetRecurrenceRequest req) =>
+        req.DayOfMonth is int d && d is >= 1 and <= 31
+            ? d
+            : throw new ArgumentException($"Pattern '{req.Pattern}' requires a day of month between 1 and 31.", nameof(req.DayOfMonth));
+
+    private static int EncodeWeekdays(IReadOnlyList<string>? days)
+    {
+        if (days is null || days.Count == 0)
+            throw new ArgumentException("Weekly recurrence requires at least one day of the week.", nameof(days));
+        var mask = 0;
+        foreach (var name in days)
+        {
+            var bit = WeekdayBits.FirstOrDefault(d => Matches(d.Name, name)).Bit;
+            if (bit == 0) throw new ArgumentException($"Unknown day of week '{name}'.", nameof(days));
+            mask |= bit;
+        }
+        return mask;
+    }
+
+    private static int EncodeMonths(IReadOnlyList<string>? months)
+    {
+        if (months is null || months.Count == 0)
+            throw new ArgumentException("Yearly recurrence requires at least one month.", nameof(months));
+        var mask = 0;
+        foreach (var name in months)
+        {
+            var bit = MonthBits.FirstOrDefault(m => Matches(m.Name, name)).Bit;
+            if (bit == 0) throw new ArgumentException($"Unknown month '{name}'.", nameof(months));
+            mask |= bit;
+        }
+        return mask;
+    }
+
+    /// <summary>Matches a day/month name case-insensitively by full name or a prefix of at least three
+    /// letters (e.g. "Mon", "Mond", "Monday" all match Monday). Safe here because day and month names
+    /// are unambiguous from their first three letters.</summary>
+    private static bool Matches(string canonical, string input)
+    {
+        var s = input?.Trim() ?? "";
+        return s.Equals(canonical, StringComparison.OrdinalIgnoreCase)
+            || (s.Length >= 3 && canonical.StartsWith(s, StringComparison.OrdinalIgnoreCase));
+    }
+
     private static IReadOnlyList<string> DecodeWeekdays(int mask) =>
         WeekdayBits.Where(d => (mask & d.Bit) != 0).Select(d => d.Name).ToList();
 

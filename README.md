@@ -251,6 +251,7 @@ TodoListMcp.exe --disable-autostart
 | `delete_task` | Remove a task and its subtree. |
 | `move_task` | Re-parent and/or reorder a task. |
 | `add_dependency` / `remove_dependency` | Add or remove a task-ordering dependency (`DEPENDS`) on another task in the same list, with an optional lead-in/lag in days. |
+| `set_recurrence` / `clear_recurrence` | Set/replace or remove a task's recurrence rule (`RECURRENCE`) for the common patterns (every N days/weekdays/weeks/months/years, every weekday, weekly-on-days, monthly-on-day, yearly-on-date) — see [Recurrence](#recurrence). |
 | `log_time` | Append a time-log entry to the list's `_Log.csv` sidecar (task or task-less), optionally also incrementing the task's time spent — see [Logged time](#logged-time). |
 | `get_time_log` | Read time-log entries from the sidecar, filtered by task, date range, or person. |
 | `update_time_log_entry` | Edit a single existing sidecar entry (identified by its current fields), changing only the values you supply. |
@@ -377,6 +378,35 @@ Existing rows — including older-format ones — are preserved verbatim when a 
 when another entry is edited or deleted; only a row you actually edit is rewritten (in the latest
 layout).
 
+## Recurrence
+
+`get_task`/`get_tasks` surface a recurring task's rule on `Recurrence` (machine `Pattern`, human
+`Description`, and structured fields). `set_recurrence` authors the rule for the common patterns; pick a
+`pattern` and give it the fields it needs:
+
+| `pattern` | Needs | Example |
+| --- | --- | --- |
+| `everyNDays` | `interval` | every 3 days |
+| `everyWeekday` | — | every weekday (Mon–Fri) |
+| `everyNWeekdays` | `interval` | every 3 weekdays |
+| `weeklyOnDays` | `daysOfWeek` (+ `interval`) | Mon/Wed/Fri every 2 weeks |
+| `everyNWeeks` | `interval` | every 3 weeks |
+| `monthlyOnDay` | `dayOfMonth` (+ `interval`) | day 15 every 2 months |
+| `everyNMonths` | `interval` | every 6 months |
+| `yearlyOnDate` | `months` + `dayOfMonth` | 14 March |
+| `everyNYears` | `interval` | every 2 years |
+
+Shared optional fields: `recalcFrom` (`dueDate`/`doneDate`/`startDate`), `onRecur`
+(`reuse`/`createNew`/`ask`), `occurrences` (a finite count; omit for unlimited), and `preserveComments`.
+Day and month names accept full names or 3-letter abbreviations. An invalid rule (bad interval, no
+weekday, out-of-range day, unknown name) is rejected rather than silently dropped. `clear_recurrence`
+removes the rule.
+
+The `Kth`-weekday and first/last-weekday patterns are **read-only** for now (they can be decoded but not
+authored). Setting recurrence does **not** advance the task — ToDoList advances a recurring task when
+*it* completes it; completing one through this server just writes `DONEDATE` and does not roll it
+forward.
+
 ## Concurrency note
 
 Each operation loads the file fresh and writes atomically (temp file + replace), with a per-file
@@ -486,12 +516,16 @@ The engine mirrors how ToDoList actually stores data (verified against a real ex
   stale reference on disk until a delete removes it). Cross-tasklist (`tasklist?id`) references are
   preserved on round-trip but not surfaced or authored.
 - Recurrence is a **`<RECURRENCE>`** element encoding a rule as three coded integers (`RECURFREQ` +
-  `RECURSPECIFIC1`/`2`) plus bookkeeping attributes. It is **decoded read-only** onto `Recurrence` —
-  every frequency (daily/weekly/monthly/yearly and their variants) is surfaced as a machine `Pattern`,
+  `RECURSPECIFIC1`/`2`) plus bookkeeping attributes. **Reading:** every frequency
+  (daily/weekly/monthly/yearly and their variants) is decoded onto `Recurrence` as a machine `Pattern`,
   a human `Description`, and structured fields (interval, weekdays, day-of-month, months, etc.), with
-  deprecated/unknown frequencies reported as `unsupported`. The server does **not** author recurrence,
-  and completing a recurring task here writes only `DONEDATE` — it does **not** advance the series
-  (that happens only inside the ToDoList app). See [`docs/recurrence-spike.md`](docs/recurrence-spike.md).
+  deprecated/unknown frequencies reported as `unsupported`. **Writing:** `set_recurrence`/
+  `clear_recurrence` author the common patterns — every N days/weekdays/weeks/months/years, every
+  weekday, weekly-on-days, monthly-on-day, yearly-on-date — validating the rule against ToDoList's own
+  checks and emitting the exact on-disk encoding (including `DHW`/`DHM` bitmasks). The `Kth`-weekday and
+  first/last-weekday patterns remain read-only. The server does **not** run the recurrence *engine*:
+  completing a recurring task here writes only `DONEDATE` and does **not** advance the series (that
+  happens only inside the ToDoList app). See [`docs/recurrence-spike.md`](docs/recurrence-spike.md).
 - Completion is detected from **`DONEDATE`** (the source of truth). ToDoList's calculated
   **`GOODASDONE`** flag (set by the "treat parents with all subtasks completed as done" option) is
   surfaced read-only as `IsGoodAsDone`, and kept in sync when this server completes/reopens a task.

@@ -692,6 +692,45 @@ public sealed class TodoListDocument
         return Project(e);
     }
 
+    /// <summary>
+    /// Sets (or replaces) a task's recurrence rule from <paramref name="req"/>. The rule is validated
+    /// (mirroring ToDoList's own checks) before any change, so an invalid request throws and leaves the
+    /// document untouched. Any existing &lt;RECURRENCE&gt; element is replaced. Read-only for the app's
+    /// perspective otherwise: this writes the rule, it does not advance the series.
+    /// </summary>
+    public TodoTask SetRecurrence(int id, SetRecurrenceRequest req)
+    {
+        var e = FindTaskElement(id) ?? throw new TaskNotFoundException(id);
+        EnsureNotLocked(e);
+        // Build (and validate) before mutating, so a rejected rule can't leave a half-applied change.
+        var element = RecurrenceFormat.Build(req);
+
+        var now = _clock.Now;
+        foreach (var existing in e.Elements("RECURRENCE").ToList()) existing.Remove();
+        e.Add(element);
+        Touch(e, now);
+        TouchRoot(now);
+        return Project(e);
+    }
+
+    /// <summary>
+    /// Removes a task's recurrence rule (its &lt;RECURRENCE&gt; element). A no-op — the task is returned
+    /// unchanged and the document left clean — when the task doesn't recur.
+    /// </summary>
+    public TodoTask ClearRecurrence(int id)
+    {
+        var e = FindTaskElement(id) ?? throw new TaskNotFoundException(id);
+        EnsureNotLocked(e);
+        var existing = e.Elements("RECURRENCE").ToList();
+        if (existing.Count == 0) return Project(e);
+
+        var now = _clock.Now;
+        foreach (var r in existing) r.Remove();
+        Touch(e, now);
+        TouchRoot(now);
+        return Project(e);
+    }
+
     // ---- Helpers -----------------------------------------------------------
 
     private XElement? FindTaskElement(int id) =>

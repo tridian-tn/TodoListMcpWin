@@ -182,6 +182,85 @@ public class TodoToolsTests
         finally { Directory.Delete(dir, recursive: true); }
     }
 
+    [Fact]
+    public void SetRecurrence_authors_a_rule_through_the_tool_surface()
+    {
+        var (tools, dir) = NewTools();
+        try
+        {
+            var t = tools.SetRecurrence(id: 1, pattern: "weeklyOnDays", interval: 2,
+                daysOfWeek: new[] { "Mon", "Thu" }, recalcFrom: "startDate", onRecur: "createNew", list: "work");
+            Assert.Equal("weeklyOnDays", t.Recurrence!.Pattern);
+            Assert.Equal(new[] { "Monday", "Thursday" }, t.Recurrence.DaysOfWeek);
+            Assert.Equal(2, t.Recurrence.Interval);
+            Assert.Equal("startDate", t.Recurrence.RecalculateFrom);
+            Assert.Equal("createNew", t.Recurrence.OnRecur);
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
+    public void SetRecurrence_rejects_an_unknown_pattern()
+    {
+        var (tools, dir) = NewTools();
+        try
+        {
+            Assert.Throws<ArgumentException>(() => tools.SetRecurrence(id: 1, pattern: "fortnightly", list: "work"));
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
+    public void SetRecurrence_rejects_a_deferred_pattern_with_guidance()
+    {
+        var (tools, dir) = NewTools();
+        try
+        {
+            // The by-weekday patterns are readable but not authorable yet.
+            var ex = Assert.Throws<ArgumentException>(
+                () => tools.SetRecurrence(id: 1, pattern: "monthlyByWeekday", list: "work"));
+            Assert.Contains("read but not authored", ex.Message);
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
+    public void SetRecurrence_rejects_an_unknown_recalcFrom()
+    {
+        var (tools, dir) = NewTools();
+        try
+        {
+            Assert.Throws<ArgumentException>(() =>
+                tools.SetRecurrence(id: 1, pattern: "everyNDays", interval: 1, recalcFrom: "whenever", list: "work"));
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
+    public void SetRecurrence_rejects_an_unknown_onRecur()
+    {
+        var (tools, dir) = NewTools();
+        try
+        {
+            Assert.Throws<ArgumentException>(() =>
+                tools.SetRecurrence(id: 1, pattern: "everyNDays", interval: 1, onRecur: "clone", list: "work"));
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
+    public void ClearRecurrence_removes_a_rule_through_the_tool_surface()
+    {
+        var (tools, dir) = NewTools();
+        try
+        {
+            tools.SetRecurrence(id: 1, pattern: "everyNDays", interval: 3, list: "work");
+            var t = tools.ClearRecurrence(id: 1, list: "work");
+            Assert.Null(t.Recurrence);
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
     private sealed class StubOptionsMonitor : IOptionsMonitor<TodoListMcpOptions>
     {
         public StubOptionsMonitor(TodoListMcpOptions value) => CurrentValue = value;
