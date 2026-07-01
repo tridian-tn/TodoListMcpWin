@@ -74,14 +74,16 @@ public class InternalFieldPreservationTests
     }
 
     [Fact]
-    public void Opaque_custom_comments_survive_byte_identical_across_an_unrelated_update()
+    public void Opaque_custom_comments_survive_unchanged_across_an_unrelated_update()
     {
         // The risk case: task 27 carries a genuine rich (RTF) <CUSTOMCOMMENTS> payload this server
-        // can't re-author. Touching an unrelated field must leave it byte-identical on real disk —
-        // if it were ever corrupted, the content is unrecoverable.
+        // can't re-author. Touching an unrelated field must leave it unchanged across a real disk
+        // round-trip — if it were ever corrupted, the content is unrecoverable.
         var path = TestData.MultiCommentFormatFilePath();
-        var original = RawCustomComments(XDocument.Load(path), 27);
-        Assert.False(string.IsNullOrEmpty(original));
+        var source = XDocument.Load(path);
+        var originalPayload = RawCustomComments(source, 27);
+        var originalRefId = (string?)Task27(source).Attribute("REFID");
+        Assert.False(string.IsNullOrEmpty(originalPayload));
 
         var doc = TodoListDocument.Load(path);
         doc.UpdateTask(27, new() { Title = "Touched by MCP" });   // no comments in the request
@@ -91,16 +93,17 @@ public class InternalFieldPreservationTests
         {
             doc.SaveAs(tmp);
             var reloaded = XDocument.Load(tmp);
-            var task = reloaded.Descendants("TASK").First(t => (int)t.Attribute("ID")! == 27);
 
-            Assert.Equal("Touched by MCP", (string?)task.Attribute("TITLE"));
-            Assert.Equal(original, RawCustomComments(reloaded, 27));   // payload untouched, byte for byte
-            Assert.NotNull((string?)task.Attribute("REFID"));
+            Assert.Equal("Touched by MCP", (string?)Task27(reloaded).Attribute("TITLE"));
+            Assert.Equal(originalPayload, RawCustomComments(reloaded, 27));   // payload identical
+            Assert.Equal(originalRefId, (string?)Task27(reloaded).Attribute("REFID"));
         }
         finally
         {
             File.Delete(tmp);
         }
+
+        static XElement Task27(XDocument d) => d.Descendants("TASK").First(t => (int)t.Attribute("ID")! == 27);
     }
 
     private static string? RawCustomComments(XDocument doc, int id) =>
@@ -190,6 +193,9 @@ public class InternalFieldPreservationTests
         // Introduction.tdl is a genuine ToDoList export: task 24 carries a plugin <METADATA> blob
         // with a GUID-named attribute, and every task carries a REFID. Prove they survive a real
         // UTF-16 disk round-trip after an unrelated mutation.
+        var originalRefId = (string?)XDocument.Load(TestData.SampleFilePath())
+            .Descendants("TASK").First(t => (int)t.Attribute("ID")! == 24).Attribute("REFID");
+
         var doc = TodoListDocument.Load(TestData.SampleFilePath());
         doc.UpdateTask(24, new() { Title = "Touched by MCP" });
 
@@ -200,7 +206,7 @@ public class InternalFieldPreservationTests
             var task = XDocument.Load(tmp).Descendants("TASK").First(t => (int)t.Attribute("ID")! == 24);
 
             Assert.Equal("Touched by MCP", (string?)task.Attribute("TITLE"));
-            Assert.NotNull((string?)task.Attribute("REFID"));
+            Assert.Equal(originalRefId, (string?)task.Attribute("REFID"));
             var metadata = Assert.Single(task.Elements("METADATA"));
             var attr = Assert.Single(metadata.Attributes());
             Assert.Equal(MetadataGuid, attr.Name.LocalName);
