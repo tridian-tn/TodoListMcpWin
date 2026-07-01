@@ -104,6 +104,27 @@ public class RecurrenceTests
         Assert.Equal("Every 3 weeks", r.Description);
     }
 
+    [Fact]
+    public void Weekly_on_every_day_decodes_the_full_mask()
+    {
+        // DHW_EVERYDAY = 0x7F (127): all seven days, in calendar order (Sunday first).
+        var r = Read("<RECURRENCE RECURFREQ=\"2\" RECURSPECIFIC1=\"1\" RECURSPECIFIC2=\"127\">Weekly</RECURRENCE>");
+        Assert.Equal(
+            new[] { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" },
+            r.DaysOfWeek);
+    }
+
+    [Fact]
+    public void Weekly_with_no_days_set_still_reads_as_weekly()
+    {
+        // An empty weekday mask (spec2 = 0) — the description omits the day list rather than breaking.
+        var r = Read("<RECURRENCE RECURFREQ=\"2\" RECURSPECIFIC1=\"2\" RECURSPECIFIC2=\"0\">Weekly</RECURRENCE>");
+        Assert.Equal("weeklyOnDays", r.Pattern);
+        Assert.NotNull(r.DaysOfWeek);
+        Assert.Empty(r.DaysOfWeek);
+        Assert.Equal("Weekly, every 2 weeks", r.Description);
+    }
+
     // ---- Monthly -----------------------------------------------------------
 
     [Fact]
@@ -196,6 +217,17 @@ public class RecurrenceTests
     }
 
     [Fact]
+    public void Yearly_with_no_valid_month_falls_back_in_the_description()
+    {
+        // spec1 = 0 is neither a plain index (1–12) nor a DHM bit — no month is surfaced.
+        var r = Read("<RECURRENCE RECURFREQ=\"4\" RECURSPECIFIC1=\"0\" RECURSPECIFIC2=\"5\">Yearly</RECURRENCE>");
+        Assert.NotNull(r.Months);
+        Assert.Empty(r.Months);
+        Assert.Equal(5, r.DayOfMonth);
+        Assert.Equal("Yearly on day 5 of the given month", r.Description);
+    }
+
+    [Fact]
     public void Every_n_years()
     {
         var r = Read("<RECURRENCE RECURFREQ=\"14\" RECURSPECIFIC1=\"2\" RECURSPECIFIC2=\"0\">Yearly</RECURRENCE>");
@@ -271,6 +303,70 @@ public class RecurrenceTests
     {
         var r = Read("<RECURRENCE RECURFREQ=\"1\" RECURSPECIFIC1=\"1\" RECURFROM=\"2\">Daily</RECURRENCE>");
         Assert.Equal("startDate", r.RecalculateFrom);
+    }
+
+    [Fact]
+    public void Ask_reuse_option_is_decoded()
+    {
+        var r = Read("<RECURRENCE RECURFREQ=\"1\" RECURSPECIFIC1=\"1\" RECURREUSE=\"2\">Daily</RECURRENCE>");
+        Assert.Equal("ask", r.OnRecur);
+    }
+
+    // ---- Resilience --------------------------------------------------------
+
+    [Theory]
+    [InlineData("")]                              // RECURFREQ absent entirely
+    [InlineData(" RECURFREQ=\"\"")]               // present but empty
+    [InlineData(" RECURFREQ=\"abc\"")]            // non-numeric
+    [InlineData(" RECURFREQ=\"-1\"")]             // TDIR_NONE sentinel
+    public void Malformed_or_missing_frequency_is_not_recurring(string freqAttr)
+    {
+        var doc = DocWith($"<RECURRENCE{freqAttr} RECURSPECIFIC1=\"1\">?</RECURRENCE>");
+        Assert.Null(doc.GetTask(1)!.Recurrence);
+    }
+
+    [Fact]
+    public void Stray_text_node_in_a_task_does_not_break_recurrence_reading()
+    {
+        // The real recurrence fixture contains a couple of stray "0" text nodes directly inside TASK
+        // elements (not seen in a clean app export). They're mixed content we ignore; guard that a
+        // bare numeric text node beside the RECURRENCE element doesn't derail the decode.
+        var r = Read("<RECURRENCE RECURFREQ=\"1\" RECURSPECIFIC1=\"3\">Daily</RECURRENCE>0");
+        Assert.Equal("everyNDays", r.Pattern);
+        Assert.Equal(3, r.Interval);
+    }
+
+    [Fact]
+    public void By_weekday_tolerates_out_of_range_which_and_dow()
+    {
+        // which = 7 (no ordinal name) and dow = 0 (no OLE day) — surfaced without throwing.
+        var spec1 = 7 | (0 << 16);
+        var r = Read($"<RECURRENCE RECURFREQ=\"8\" RECURSPECIFIC1=\"{spec1}\" RECURSPECIFIC2=\"1\">Monthly</RECURRENCE>");
+        Assert.Equal("monthlyByWeekday", r.Pattern);
+        Assert.Equal("7", r.WeekOfMonth);
+        Assert.Equal("weekday", r.Weekday);
+    }
+
+    [Fact]
+    public void Recurrence_element_survives_an_unrelated_edit_and_save()
+    {
+        // Recurrence is read-only: editing another field must not drop or rewrite the <RECURRENCE>
+        // element (including attributes the decoder doesn't model), mirroring the round-trip fidelity
+        // guarantee for anything this server doesn't author.
+        var doc = DocWith("<RECURRENCE RECURFREQ=\"16\" RECURSPECIFIC1=\"3\" RECURSPECIFIC2=\"0\" " +
+                          "RECURREUSE=\"0\" RECURFROM=\"1\" RECURNUM=\"-1\" RECURREMAINING=\"-1\" " +
+                          "RECURPRESERVECOMMENTS=\"1\">Daily</RECURRENCE>");
+        doc.UpdateTask(1, new() { Title = "Renamed" });
+
+        var xml = doc.ToXmlString();
+        Assert.Contains("RECURFREQ=\"16\"", xml);
+        Assert.Contains("RECURSPECIFIC1=\"3\"", xml);
+        Assert.Contains("RECURPRESERVECOMMENTS=\"1\"", xml);
+
+        // And it still decodes identically after the edit.
+        var r = doc.GetTask(1)!.Recurrence!;
+        Assert.Equal("everyNWeekdays", r.Pattern);
+        Assert.Equal(3, r.Interval);
     }
 
     // ---- Deprecated / unknown ---------------------------------------------
