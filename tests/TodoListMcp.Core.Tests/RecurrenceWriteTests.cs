@@ -353,6 +353,45 @@ public class RecurrenceWriteTests
         Assert.True(doc.CompleteTask(1).IsDone);
     }
 
+    [Fact]
+    public void Completing_a_task_with_a_deprecated_recurrence_is_also_refused()
+    {
+        // A deprecated frequency still decodes to a (non-null) recurrence, so the guard keys on the
+        // presence of an active rule, not on whether we can author its pattern.
+        var doc = TodoListDocument.Parse(
+            "<?xml version=\"1.0\" encoding=\"utf-16\"?>" +
+            "<TODOLIST PROJECTNAME=\"W\" NEXTUNIQUEID=\"2\">" +
+            "<TASK ID=\"1\" TITLE=\"T\" POS=\"0\" POSSTRING=\"1\">" +
+            "<RECURRENCE RECURFREQ=\"6\" RECURSPECIFIC1=\"1\">?</RECURRENCE></TASK></TODOLIST>", TestData.Clock);
+        Assert.Throws<RecurringTaskCompletionException>(() => doc.CompleteTask(1));
+    }
+
+    [Fact]
+    public void Reopening_a_recurring_task_is_allowed()
+    {
+        // The guard is completion-only: a recurring task that is done on disk can still be reopened.
+        var doc = TodoListDocument.Parse(
+            "<?xml version=\"1.0\" encoding=\"utf-16\"?>" +
+            "<TODOLIST PROJECTNAME=\"W\" NEXTUNIQUEID=\"2\">" +
+            "<TASK ID=\"1\" TITLE=\"T\" DONEDATE=\"45000.5\" PERCENTDONE=\"100\" POS=\"0\" POSSTRING=\"1\">" +
+            "<RECURRENCE RECURFREQ=\"1\" RECURSPECIFIC1=\"1\">Daily</RECURRENCE></TASK></TODOLIST>", TestData.Clock);
+        var t = doc.ReopenTask(1);
+        Assert.False(t.IsDone);
+        Assert.NotNull(t.Recurrence);   // reopening leaves the rule intact
+    }
+
+    [Fact]
+    public void A_locked_recurring_task_reports_the_lock_first()
+    {
+        // Lock is checked before the recurrence guard, so a locked recurring task surfaces the lock.
+        var doc = TodoListDocument.Parse(
+            "<?xml version=\"1.0\" encoding=\"utf-16\"?>" +
+            "<TODOLIST PROJECTNAME=\"W\" NEXTUNIQUEID=\"2\">" +
+            "<TASK ID=\"1\" TITLE=\"T\" LOCK=\"1\" POS=\"0\" POSSTRING=\"1\">" +
+            "<RECURRENCE RECURFREQ=\"1\" RECURSPECIFIC1=\"1\">Daily</RECURRENCE></TASK></TODOLIST>", TestData.Clock);
+        Assert.Throws<TaskLockedException>(() => doc.CompleteTask(1));
+    }
+
     // ---- Fixture round-trip: encoder reproduces ToDoList's own bytes -------
 
     public static IEnumerable<object[]> PristinePatterns() => new[]
