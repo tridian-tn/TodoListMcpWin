@@ -219,7 +219,7 @@ public static class RecurrenceFormat
 
         var occurrences = req.Occurrences;
         if (occurrences is int n && n < 1)
-            throw new ArgumentException("Occurrences must be at least 1.", nameof(req));
+            throw new ArgumentException("Occurrences must be at least 1.", nameof(req.Occurrences));
         var num = occurrences ?? OccursInfinitely;
 
         // Attribute order matches ToDoList's own output.
@@ -270,14 +270,14 @@ public static class RecurrenceFormat
             case RecurrencePattern.EveryNYears:
                 return (FreqEveryNYears, PositiveInterval(req), 0, "Yearly");
             default:
-                throw new ArgumentOutOfRangeException(nameof(req), req.Pattern, "Unsupported recurrence pattern.");
+                throw new ArgumentOutOfRangeException(nameof(req.Pattern), req.Pattern, "Unsupported recurrence pattern.");
         }
     }
 
     private static int PositiveInterval(SetRecurrenceRequest req) =>
         req.Interval is int n && n > 0
             ? n
-            : throw new ArgumentException($"Pattern '{req.Pattern}' requires an interval of at least 1.", nameof(req));
+            : throw new ArgumentException($"Pattern '{req.Pattern}' requires an interval of at least 1.", nameof(req.Interval));
 
     /// <summary>Interval for patterns where it's secondary (weekly-on-days, monthly-on-day): defaults to
     /// 1 when omitted, but a supplied value must still be ≥ 1.</summary>
@@ -286,13 +286,13 @@ public static class RecurrenceFormat
         {
             null => 1,
             int n when n > 0 => n,
-            _ => throw new ArgumentException($"Pattern '{req.Pattern}' interval must be at least 1.", nameof(req)),
+            _ => throw new ArgumentException($"Pattern '{req.Pattern}' interval must be at least 1.", nameof(req.Interval)),
         };
 
     private static int DayOfMonth(SetRecurrenceRequest req) =>
         req.DayOfMonth is int d && d is >= 1 and <= 31
             ? d
-            : throw new ArgumentException($"Pattern '{req.Pattern}' requires a day of month between 1 and 31.", nameof(req));
+            : throw new ArgumentException($"Pattern '{req.Pattern}' requires a day of month between 1 and 31.", nameof(req.DayOfMonth));
 
     private static int EncodeWeekdays(IReadOnlyList<string>? days)
     {
