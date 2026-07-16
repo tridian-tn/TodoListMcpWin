@@ -125,10 +125,11 @@ public sealed class TodoTask
     public TaskRecurrence? Recurrence { get; init; }
 
     /// <summary>
-    /// The task's custom-field values (the &lt;CUSTOMATTRIB&gt; child elements), keyed by the field's
-    /// ID. Empty when the task carries no custom-field values. The available fields and their types are
-    /// described by the list's <see cref="CustomAttributeDefinition"/>s. Fields with an empty value are
-    /// omitted, matching ToDoList (which drops empty custom data on read).
+    /// The task's custom-field values (the &lt;CUSTOMATTRIB&gt; child elements) — a list with one entry
+    /// per field, each carrying its <see cref="CustomFieldValue.Id"/> and value. Empty when the task
+    /// carries no custom-field values. The available fields and their types are described by the list's
+    /// <see cref="CustomAttributeDefinition"/>s. Fields with an empty value are omitted, matching
+    /// ToDoList (which drops empty custom data on read).
     /// </summary>
     public IReadOnlyList<CustomFieldValue> CustomFields { get; init; } = Array.Empty<CustomFieldValue>();
 

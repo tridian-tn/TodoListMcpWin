@@ -322,8 +322,9 @@ for it (a `<CUSTOMATTRIB>` element).
 - **Discover them** — `get_custom_fields` returns the list's definitions: `Id` (the key, e.g. `MR`),
   `Label`, `DataType` (string/date/integer/double/bool/icon/fileLink/timePeriod/fraction/calculation),
   `ListType` (none/auto/fixed/autoMulti/fixedMulti), `IsMultiValued`, and `ListItems` for list fields.
-- **Read values** — each task's values appear on `CustomFields`, keyed by field ID, with the raw
-  `Value`, the split `Values` (multi-select fields), and ToDoList's `Display` string when present.
+- **Read values** — each task's values appear on `CustomFields` — a list with one entry per field,
+  each carrying its `Id`, the raw `Value`, the split `Values` (multi-select fields), and ToDoList's
+  `Display` string when present.
 - **Set values** — pass `customFields` to `add_task` / `update_task` as an `{ ID: value }` map, e.g.
   `{ "MR": "12345" }`. Only the fields you list are changed; an **empty value clears** that field.
   For a multi-select field, join the selected items with newlines. The field must already be defined
