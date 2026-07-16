@@ -9,6 +9,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Serilog;
 using TodoListMcp.App.Mcp;
+using TodoListMcp.App.Sp;
 using TodoListMcp.App.Tray;
 
 namespace TodoListMcp.App;
@@ -143,6 +144,7 @@ internal static class Program
 
         var app = builder.Build();
         app.MapMcp();
+        app.MapSpFacadeV1();
 
         try
         {

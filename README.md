@@ -212,6 +212,31 @@ With the Codex desktop application, enter the Settings, navigate to Integrations
 * Enter the URL: `http://localhost:3001/` (replace `3001` with your configured `Port`; use `https://` if `UseHttps` is enabled)
 * Click Save
 
+## Super Productivity integration
+
+The server also exposes a small **read-only REST facade** so [Super Productivity](https://super-productivity.com)
+can surface your ToDoList tasks as an *issue provider* (the same mechanism as its Jira/GitHub
+integrations). A companion SuperProductivity plugin polls it and links/imports tasks; time tracking and
+status then live in SP. Write-back to the `.tdl` is a future phase — today it is read-only.
+
+It runs on the **same port** as the MCP endpoint, under `/integrations/sp/v1`:
+
+| Route | Purpose |
+|---|---|
+| `GET /integrations/sp/v1/health` | liveness + the configured list aliases |
+| `GET /integrations/sp/v1/issues` | task summaries (`?file=`, `?status=open\|done\|all`, `?q=`, `?limit=`) |
+| `GET /integrations/sp/v1/issues/{id}` | full detail for one task |
+
+Notes:
+
+* **Separate from the MCP surface.** These are plain REST routes, never registered as MCP tools, so an
+  LLM can't discover or call them.
+* **No CORS by design (this is the access control).** The SP plugin's `fetch` sends no `Origin`, so the
+  browser needs no CORS grant; a malicious web page *does* send an `Origin`, and because the facade
+  returns none, the browser blocks it from reading your tasks. Keep it loopback-bound.
+* The plugin ships separately (its own repo); point its **Server URL** at this server's root (e.g.
+  `http://localhost:3001`).
+
 ## Using the tray app
 
 Launch it by double-clicking **`TodoListMcp.exe`**. (Running from a source checkout instead? See
