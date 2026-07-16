@@ -75,7 +75,11 @@ public sealed class SpFacadeConfigEndpointTests
         {
             var resp = await client.GetAsync("/integrations/sp/v1/issues");
             Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
-            Assert.Equal("bad_request", (await Json(resp))["error"]!["code"]!.GetValue<string>());
+            var msg = (await Json(resp))["error"]!;
+            Assert.Equal("bad_request", msg["code"]!.GetValue<string>());
+            // The message must be worded for the facade's `file` param, not the MCP `list` param.
+            Assert.Contains("'file'", msg["message"]!.GetValue<string>());
+            Assert.DoesNotContain("'list'", msg["message"]!.GetValue<string>());
         }
         finally { client.Dispose(); await app.DisposeAsync(); File.Delete(a); File.Delete(b); }
     }

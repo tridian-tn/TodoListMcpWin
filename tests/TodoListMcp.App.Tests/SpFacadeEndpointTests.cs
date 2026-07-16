@@ -145,6 +145,16 @@ public sealed class SpFacadeEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Issues_nonNumericLimit_returns400Envelope()
+    {
+        // Parsed in-handler (not via model binding), so it returns the SP error envelope, not a
+        // framework 400.
+        var resp = await _client.GetAsync("/integrations/sp/v1/issues?limit=abc");
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        Assert.Equal("bad_request", (await Json(resp))["error"]!["code"]!.GetValue<string>());
+    }
+
+    [Fact]
     public async Task CrossOrigin_get_hasNoAllowOriginHeader()
     {
         // Security: a browser cross-origin fetch carries an Origin; the facade must NOT return

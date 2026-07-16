@@ -9,8 +9,9 @@ namespace TodoListMcp.App.Sp;
 /// <summary>
 /// Maps the read-only SP issue-provider REST routes (v1). Mounted alongside — but distinct from — the
 /// MCP endpoint; it reuses <see cref="TodoListManager"/> so reads share the same per-file lock and
-/// fresh-load behaviour. CORS is required because the SP plugin calls these from the renderer via
-/// native fetch() (its injected http client blocks localhost).
+/// fresh-load behaviour. It applies <b>no</b> CORS policy by design (see the note in
+/// <see cref="MapSpFacadeV1"/>): the SP plugin's fetch sends no Origin, so a non-CORS request needs no
+/// grant, while a malicious web origin (which does send one) is browser-blocked from reading the response.
 /// </summary>
 internal static class SpFacade
 {
@@ -28,17 +29,26 @@ internal static class SpFacade
 
         // Task summaries: searchIssues (q) and getNewIssuesForBacklog (status=open).
         group.MapGet("/issues",
-            (string? file, string? status, string? q, int? limit, TodoListManager manager, ILoggerFactory lf) =>
+            (string? file, string? status, string? q, string? limit, TodoListManager manager, ILoggerFactory lf) =>
             Guarded(lf, () =>
             {
                 var want = NormaliseStatus(status);
                 if (want is null)
                     return Err(StatusCodes.Status400BadRequest, "bad_request", "status must be open|done|all.");
 
+                // Parse limit here (not via model binding) so a bad value returns the SP error envelope
+                // rather than ASP.NET's default 400. A non-positive limit falls back to the default.
+                var lim = 200;
+                if (!string.IsNullOrWhiteSpace(limit))
+                {
+                    if (!int.TryParse(limit, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+                        return Err(StatusCodes.Status400BadRequest, "bad_request", $"limit '{limit}' is not an integer.");
+                    if (parsed > 0) lim = parsed;
+                }
+
                 // Resolve once, up front: an unknown/ambiguous alias fails fast as 400 before any read,
                 // and the meta reflects exactly the list that was read (no second, racy resolution).
                 var entry = manager.Resolve(file);
-                var lim = limit is > 0 ? limit.Value : 200;
                 var items = manager.Read(entry.Alias, doc => SpIssueMapper.Summaries(doc, want, q, lim));
                 return Ok(items, new { file = entry.Alias, status = want, count = items.Count });
             }));
@@ -73,12 +83,13 @@ internal static class SpFacade
         {
             return body();
         }
-        // Unknown alias / no lists configured / ambiguous default — a caller (config) problem. The
-        // message only names configured aliases, which /health already exposes by contract, so it's
-        // safe to return.
+        // Unknown alias / no lists configured / ambiguous default — a caller (config) problem. Resolve()'s
+        // messages are worded for the MCP `list` parameter; the facade exposes it as `file`, so retarget
+        // that reference. (They only name configured aliases, which /health already exposes, so returning
+        // them is safe.)
         catch (InvalidOperationException ex)
         {
-            return Err(StatusCodes.Status400BadRequest, "bad_request", ex.Message);
+            return Err(StatusCodes.Status400BadRequest, "bad_request", ex.Message.Replace("'list'", "'file'"));
         }
         // Anything else (missing/locked/corrupt .tdl) — log the detail server-side and return a fixed
         // generic message, so filesystem paths (which contain the Windows username) never reach a client.
