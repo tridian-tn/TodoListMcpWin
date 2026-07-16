@@ -28,6 +28,8 @@ internal static class CustomAttributeFormat
     private const string IdAttr = "ID";
     private const string ValueAttr = "VALUE";
     private const string ValueDisplayAttr = "VALUEDISPLAY";
+    // Derived attributes ToDoList recomputes; dropped on write so we never leave a stale mirror.
+    private static readonly string[] DerivedAttrs = { ValueDisplayAttr, "CALC", "CALCDISPLAY" };
 
     /// <summary>The multi-select list separator ToDoList uses inside a VALUE / LISTDATA field.</summary>
     private const char ItemSep = '\n';
@@ -157,20 +159,36 @@ internal static class CustomAttributeFormat
 
     /// <summary>
     /// Sets (or clears) a task's value for one custom field. A null/empty <paramref name="value"/>
-    /// removes the field's element. Writes only ID and VALUE — the derived VALUEDISPLAY (and any
-    /// CALC/CALCDISPLAY) is dropped so ToDoList recomputes it on load and never shows a stale mirror.
-    /// Throws when the field has no definition on the list, or when it is a calculation field (its
-    /// value is derived by ToDoList and can't be set directly).
+    /// removes the field's element(s). An existing element is updated in place — its position and any
+    /// attributes this server doesn't own are preserved — with only the derived mirrors
+    /// (VALUEDISPLAY/CALC/CALCDISPLAY) dropped so ToDoList recomputes them and never shows a stale
+    /// value; a new element is created only when the task has none. This mirrors ToDoList's own
+    /// <c>SetTaskCustomAttributeData</c> (get-or-add the element, then overwrite VALUE). Throws when
+    /// the field has no definition on the list, or when it is a calculation field (derived by ToDoList).
     /// </summary>
     public static void SetValue(
         XElement task, string id, string? value,
         IReadOnlyDictionary<string, CustomAttributeDefinition> defs)
     {
         var key = ValidateSettable(id, defs);
+        var existing = ExistingValueElements(task, key);
 
-        foreach (var existing in ExistingValueElements(task, key)) existing.Remove();
+        if (string.IsNullOrEmpty(value))
+        {
+            foreach (var e in existing) e.Remove();
+            return;
+        }
 
-        if (string.IsNullOrEmpty(value)) return;
+        if (existing.Count > 0)
+        {
+            // Keep the first element (its place among siblings and any other attributes ride through);
+            // collapse any duplicates, matching ToDoList's one-element-per-field invariant.
+            var e = existing[0];
+            for (var i = 1; i < existing.Count; i++) existing[i].Remove();
+            e.SetAttributeValue(ValueAttr, value);
+            foreach (var derived in DerivedAttrs) e.SetAttributeValue(derived, null);
+            return;
+        }
 
         task.Add(new XElement(ValueElement,
             new XAttribute(IdAttr, key),

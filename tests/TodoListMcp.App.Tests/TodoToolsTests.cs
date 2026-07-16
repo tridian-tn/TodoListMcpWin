@@ -356,6 +356,24 @@ public class TodoToolsTests
     }
 
     [Fact]
+    public void AddTask_round_trips_a_multi_select_value_through_the_tool_surface()
+    {
+        // The newline-joined dictionary value must survive the write-to-disk + reload at the tool
+        // boundary (the &#xA; character-reference round-trip), not just in memory.
+        var (tools, dir) = NewToolsWithCustomFields();
+        try
+        {
+            var added = tools.AddTask(
+                title: "X",
+                customFields: new Dictionary<string, string> { ["TAGS"] = "alpha\ngamma" },
+                list: "work");
+            var reread = tools.GetTask(id: added.Id, list: "work");
+            Assert.Equal(new[] { "alpha", "gamma" }, reread.CustomFields.Single(c => c.Id == "TAGS").Values);
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
     public void GetCustomFields_lists_the_definitions()
     {
         var (tools, dir) = NewToolsWithCustomFields();

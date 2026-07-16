@@ -179,6 +179,12 @@ public sealed class TodoListDocument
     /// <summary>Flat list of tasks matching every supplied criterion.</summary>
     public IReadOnlyList<TodoTask> Search(TaskQuery query)
     {
+        // A custom-field value only means something paired with a field ID; reject the lone value
+        // rather than silently ignoring it and returning an unfiltered result.
+        if (!string.IsNullOrWhiteSpace(query.CustomFieldValue) && string.IsNullOrWhiteSpace(query.CustomFieldId))
+            throw new ArgumentException(
+                "customFieldValue requires customFieldId.", nameof(query));
+
         var results = new List<TodoTask>();
         var taskIds = AllTaskIds();
         var defs = CustomAttributeFormat.DefinitionMap(_root);
@@ -449,6 +455,13 @@ public sealed class TodoListDocument
             ? FindTaskElement(pid) ?? throw new TaskNotFoundException(pid)
             : _root;
 
+        // Validate custom-field assignments before allocating an ID or building anything, so a rejected
+        // field makes the whole add a no-op (no burned ID, document untouched). Empty values are
+        // dropped — they have nothing to set on a new task.
+        var customToSet = req.CustomFields.Where(f => !string.IsNullOrEmpty(f.Value)).ToList();
+        var customDefs = customToSet.Count == 0 ? null : CustomAttributeFormat.DefinitionMap(_root);
+        foreach (var f in customToSet) CustomAttributeFormat.ValidateSettable(f.Id, customDefs!);
+
         var now = _clock.Now;
         var e = new XElement("TASK",
             new XAttribute("ID", AllocateId()),
@@ -475,7 +488,7 @@ public sealed class TodoListDocument
         SetMulti(e, "ALLOCATEDTO", "PERSON", req.AllocatedTo);
         SetMulti(e, "FILEREFPATH", "FILEREFPATH", req.FileLinks, trim: false);
         if (req.AllocatedBy is not null) SetAllocatedBy(e, req.AllocatedBy);
-        SetCustomFields(e, req.CustomFields);
+        foreach (var f in customToSet) CustomAttributeFormat.SetValue(e, f.Id, f.Value, customDefs!);
         Touch(e, now);
 
         var siblings = parent.Elements("TASK").ToList();
@@ -965,18 +978,6 @@ public sealed class TodoListDocument
 
     private static void SetAllocatedBy(XElement e, string allocatedBy) =>
         e.SetAttributeValue("ALLOCATEDBY", TrimToNull(allocatedBy));
-
-    /// <summary>
-    /// Applies custom-field assignments to a freshly-built task element (the AddTask path). Validates
-    /// every field before writing any, so a rejected field can't leave a half-populated new task.
-    /// </summary>
-    private void SetCustomFields(XElement e, IReadOnlyList<CustomFieldSet> fields)
-    {
-        if (fields.Count == 0) return;
-        var defs = CustomAttributeFormat.DefinitionMap(_root);
-        foreach (var f in fields) CustomAttributeFormat.ValidateSettable(f.Id, defs);
-        foreach (var f in fields) CustomAttributeFormat.SetValue(e, f.Id, f.Value, defs);
-    }
 
     /// <summary>
     /// Validates a set of custom-field assignments without mutating anything, returning the list's
