@@ -244,8 +244,9 @@ TodoListMcp.exe --disable-autostart
 | `list_todo_files` | List the configured files, their aliases, and each list's effective time-log mode. |
 | `get_tasks` | Full task hierarchy for a list. |
 | `get_task` | One task (and its subtasks) by ID. |
-| `search_tasks` | Filter by text, category, assignee, allocated-by, completion, flag, status, version, external ID, minimum priority/risk, or time estimate/spent range (in hours). |
-| `add_task` | Create a task (title, notes + `commentsFormat`, priority, risk, % done, time estimate/spent, due/start date, status, version, flag, external ID, categories, assignees/allocated-by, file links, parent/index). |
+| `get_custom_fields` | List the custom fields (custom attributes) defined on a list — ID, label, type, list behaviour and allowed values — see [Custom fields](#custom-fields). |
+| `search_tasks` | Filter by text, category, assignee, allocated-by, completion, flag, status, version, external ID, minimum priority/risk, time estimate/spent range (in hours), or a custom field value. |
+| `add_task` | Create a task (title, notes + `commentsFormat`, priority, risk, % done, time estimate/spent, due/start date, status, version, flag, external ID, categories, assignees/allocated-by, file links, custom fields, parent/index). |
 | `update_task` | Change fields; only supplied parameters are touched (with explicit clear flags). Editing the notes of a task with formatted comments needs `replaceFormattedComments` — see [Task comments / notes](#task-comments--notes). |
 | `complete_task` / `reopen_task` | Toggle completion (`DONEDATE` + progress). `complete_task` refuses a recurring task — see [Recurrence](#recurrence). |
 | `delete_task` | Remove a task and its subtree. |
@@ -310,6 +311,30 @@ update_task(id, comments: editedSource, commentsFormat: "markdown", replaceForma
 | Rich Text (RTF) | `849CF988-…` | ⚠️ flattened mirror only | ❌ | Refused unless `replaceFormattedComments` (then replaced in the format you give). |
 | Spreadsheet | `BBDCAEDF-…` | ⚠️ flattened mirror only | ❌ | As above. |
 | Other content control | (its GUID) | ⚠️ flattened mirror only; `CommentsFormat` is the raw id | ❌ | As above. |
+
+## Custom fields
+
+ToDoList lets a list define its own **custom attributes** — extra fields such as an `MR` number, a
+story-point count, or a fixed set of tags. Each is declared once on the list (a `<CUSTOMATTRIBDEF>`
+with an ID, label, type and — for drop-downs — its allowed values) and every task can carry a value
+for it (a `<CUSTOMATTRIB>` element).
+
+- **Discover them** — `get_custom_fields` returns the list's definitions: `Id` (the key, e.g. `MR`),
+  `Label`, `DataType` (string/date/integer/double/bool/icon/fileLink/timePeriod/fraction/calculation),
+  `ListType` (none/auto/fixed/autoMulti/fixedMulti), `IsMultiValued`, and `ListItems` for list fields.
+- **Read values** — each task's values appear on `CustomFields` — a list with one entry per field,
+  each carrying its `Id`, the raw `Value`, the split `Values` (multi-select fields), and ToDoList's
+  `Display` string when present.
+- **Set values** — pass `customFields` to `add_task` / `update_task` as an `{ ID: value }` map, e.g.
+  `{ "MR": "12345" }`. Only the fields you list are changed; an **empty value clears** that field.
+  For a multi-select field, join the selected items with newlines. The field must already be defined
+  on the list (define new fields in the ToDoList app); **calculation** fields are read-only (ToDoList
+  derives them). The derived display mirror is dropped on write so ToDoList recomputes it — no stale
+  values.
+- **Search** — `search_tasks` takes `customFieldId` (match tasks that have the field) and optional
+  `customFieldValue` (equals a value or a selected item, or a case-insensitive substring).
+
+Custom fields you don't touch — and the definitions themselves — are preserved verbatim across edits.
 
 ## Logged time
 

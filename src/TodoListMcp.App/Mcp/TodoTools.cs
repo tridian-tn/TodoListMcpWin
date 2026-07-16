@@ -43,8 +43,16 @@ public sealed class TodoTools
         _manager.Read(list, d => d.GetTask(id))
         ?? throw new InvalidOperationException($"Task {id} was not found.");
 
+    [McpServerTool(Name = "get_custom_fields")]
+    [Description("List the custom fields (custom attributes) defined on a list: their ID, label, data type, "
+        + "list behaviour and, for list fields, their allowed/known values. Use the ID to read a task's value "
+        + "(in each task's customFields) or to set one via add_task/update_task.")]
+    public IReadOnlyList<CustomAttributeDefinition> GetCustomFields(
+        [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
+        _manager.Read(list, d => d.GetCustomAttributeDefinitions());
+
     [McpServerTool(Name = "search_tasks")]
-    [Description("Search tasks by text, category, assignee, allocated-by, completion, flag, status, version, external ID, minimum priority/risk, or time estimate/spent range. Returns a flat list of matches.")]
+    [Description("Search tasks by text, category, assignee, allocated-by, completion, flag, status, version, external ID, minimum priority/risk, time estimate/spent range, or a custom field value. Returns a flat list of matches.")]
     public IReadOnlyList<TodoTask> SearchTasks(
         [Description("Case-insensitive text matched against the title and notes.")] string? text = null,
         [Description("Only tasks in this category.")] string? category = null,
@@ -61,6 +69,8 @@ public sealed class TodoTools
         [Description("Maximum time estimate in hours (normalised at 8h/day).")] double? maxEstimateHours = null,
         [Description("Minimum time spent in hours (normalised at 8h/day).")] double? minSpentHours = null,
         [Description("Maximum time spent in hours (normalised at 8h/day).")] double? maxSpentHours = null,
+        [Description("Match tasks having this custom field (by ID, case-insensitive). See get_custom_fields for IDs.")] string? customFieldId = null,
+        [Description("Value the custom field must match (needs customFieldId): equals a value/selected item, or a substring of it, case-insensitive.")] string? customFieldValue = null,
         [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
         _manager.Read(list, d => d.Search(new TaskQuery
         {
@@ -79,6 +89,8 @@ public sealed class TodoTools
             MaxEstimateHours = maxEstimateHours,
             MinSpentHours = minSpentHours,
             MaxSpentHours = maxSpentHours,
+            CustomFieldId = customFieldId,
+            CustomFieldValue = customFieldValue,
         }));
 
     [McpServerTool(Name = "add_task")]
@@ -106,6 +118,7 @@ public sealed class TodoTools
         [Description("People to assign the task to.")] string[]? allocatedTo = null,
         [Description("Who allocated the task (single value).")] string? allocatedBy = null,
         [Description("File/URL links to attach (local/network paths, http(s)/mailto URLs, or tdl:// task links). Stored verbatim; blank entries are ignored and exact duplicates are collapsed case-insensitively, as ToDoList does.")] string[]? fileLinks = null,
+        [Description("Custom-field values keyed by field ID (see get_custom_fields), e.g. {\"MR\":\"12345\"}. The field must be defined on the list; calculation fields can't be set. For a multi-select field, join items with newlines.")] Dictionary<string, string>? customFields = null,
         [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
         _manager.Write(list, d => d.AddTask(new AddTaskRequest
         {
@@ -131,6 +144,7 @@ public sealed class TodoTools
             AllocatedTo = allocatedTo ?? Array.Empty<string>(),
             AllocatedBy = allocatedBy,
             FileLinks = fileLinks ?? Array.Empty<string>(),
+            CustomFields = ToCustomFieldSets(customFields) ?? Array.Empty<CustomFieldSet>(),
         }));
 
     [McpServerTool(Name = "update_task")]
@@ -164,6 +178,7 @@ public sealed class TodoTools
         [Description("Replace the assignees (empty array clears them).")] string[]? allocatedTo = null,
         [Description("New allocated-by person (empty string clears it).")] string? allocatedBy = null,
         [Description("Replace the file/URL links (empty array clears them). Stored verbatim; blank entries are ignored and exact duplicates are collapsed case-insensitively, as ToDoList does.")] string[]? fileLinks = null,
+        [Description("Set custom-field values keyed by field ID (see get_custom_fields), e.g. {\"MR\":\"12345\"}. An empty value clears that field; other custom fields are left untouched. Calculation fields can't be set. Multi-select items are newline-joined.")] Dictionary<string, string>? customFields = null,
         [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
         _manager.Write(list, d => d.UpdateTask(id, new UpdateTaskRequest
         {
@@ -194,6 +209,7 @@ public sealed class TodoTools
             AllocatedTo = allocatedTo,
             AllocatedBy = allocatedBy,
             FileLinks = fileLinks,
+            CustomFields = ToCustomFieldSets(customFields),
         }));
 
     [McpServerTool(Name = "complete_task")]
@@ -381,6 +397,14 @@ public sealed class TodoTools
             Comment = comment,
             Hours = hours,
         });
+
+    /// <summary>
+    /// Maps the tool-boundary custom-field map (ID → value) to the core request shape. Null in → null
+    /// out so update_task reads it as "leave custom fields unchanged"; a supplied map becomes the set
+    /// of assignments — an empty map yields an empty list, i.e. a no-op (the same effect as null).
+    /// </summary>
+    private static IReadOnlyList<CustomFieldSet>? ToCustomFieldSets(Dictionary<string, string>? fields) =>
+        fields?.Select(kv => new CustomFieldSet { Id = kv.Key, Value = kv.Value }).ToList();
 
     private static DateTime? ParseDate(string? value)
     {

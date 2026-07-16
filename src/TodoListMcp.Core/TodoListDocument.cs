@@ -136,11 +136,20 @@ public sealed class TodoListDocument
 
     public int? NextUniqueId => (int?)_root.Attribute("NEXTUNIQUEID");
 
+    /// <summary>
+    /// The custom-field definitions declared on this list (the &lt;CUSTOMATTRIBDEF&gt; elements) — the
+    /// available custom fields, their types and, for list fields, their values. Empty when the list
+    /// defines none. Read-only: this server edits task values, not the definitions themselves.
+    /// </summary>
+    public IReadOnlyList<CustomAttributeDefinition> GetCustomAttributeDefinitions() =>
+        CustomAttributeFormat.ReadDefinitions(_root);
+
     /// <summary>All top-level tasks with their full subtree.</summary>
     public IReadOnlyList<TodoTask> GetTasks()
     {
         var taskIds = AllTaskIds();
-        return _root.Elements("TASK").Select(e => Project(e, taskIds)).ToList();
+        var defs = CustomAttributeFormat.DefinitionMap(_root);
+        return _root.Elements("TASK").Select(e => Project(e, taskIds, defs)).ToList();
     }
 
     /// <summary>A single task (with its subtree), or null if not found.</summary>
@@ -170,11 +179,18 @@ public sealed class TodoListDocument
     /// <summary>Flat list of tasks matching every supplied criterion.</summary>
     public IReadOnlyList<TodoTask> Search(TaskQuery query)
     {
+        // A custom-field value only means something paired with a field ID; reject the lone value
+        // rather than silently ignoring it and returning an unfiltered result.
+        if (!string.IsNullOrWhiteSpace(query.CustomFieldValue) && string.IsNullOrWhiteSpace(query.CustomFieldId))
+            throw new ArgumentException(
+                "customFieldValue requires customFieldId.", nameof(query));
+
         var results = new List<TodoTask>();
         var taskIds = AllTaskIds();
+        var defs = CustomAttributeFormat.DefinitionMap(_root);
         foreach (var e in _root.Descendants("TASK"))
         {
-            var t = Project(e, taskIds, includeSubtasks: false);
+            var t = Project(e, taskIds, defs, includeSubtasks: false);
             if (Matches(t, query))
                 results.Add(t);
         }
@@ -220,13 +236,32 @@ public sealed class TodoListDocument
         var spentHours = InHours(t.TimeSpent, t.TimeSpentUnit);
         if (q.MinSpentHours is double minS && (spentHours is null || spentHours < minS)) return false;
         if (q.MaxSpentHours is double maxS && (spentHours is null || spentHours > maxS)) return false;
+
+        if (!string.IsNullOrWhiteSpace(q.CustomFieldId))
+        {
+            var field = t.CustomFields.FirstOrDefault(
+                c => c.Id.Equals(q.CustomFieldId.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (field is null) return false;
+            if (!string.IsNullOrWhiteSpace(q.CustomFieldValue) && !CustomFieldValueMatches(field, q.CustomFieldValue.Trim()))
+                return false;
+        }
         return true;
     }
 
-    private TodoTask Project(XElement e, bool includeSubtasks = true) =>
-        Project(e, AllTaskIds(), includeSubtasks);
+    /// <summary>
+    /// True when a task's custom-field value matches the search term: any item equals it
+    /// (case-insensitive) — covering multi-select fields — or the raw value contains it as a substring.
+    /// </summary>
+    private static bool CustomFieldValueMatches(CustomFieldValue field, string needle) =>
+        field.Values.Any(v => v.Equals(needle, StringComparison.OrdinalIgnoreCase))
+        || field.Value.Contains(needle, StringComparison.OrdinalIgnoreCase);
 
-    private TodoTask Project(XElement e, HashSet<int> taskIds, bool includeSubtasks = true) => new()
+    private TodoTask Project(XElement e, bool includeSubtasks = true) =>
+        Project(e, AllTaskIds(), CustomAttributeFormat.DefinitionMap(_root), includeSubtasks);
+
+    private TodoTask Project(
+        XElement e, HashSet<int> taskIds,
+        IReadOnlyDictionary<string, CustomAttributeDefinition> defs, bool includeSubtasks = true) => new()
     {
         Id = (int?)e.Attribute("ID") ?? 0,
         Title = (string?)e.Attribute("TITLE") ?? "",
@@ -260,9 +295,10 @@ public sealed class TodoListDocument
         FileLinks = ReadMulti(e, "FILEREFPATH", "FILEREFPATH", trim: false),
         Dependencies = ReadDepends(e, taskIds),
         Recurrence = RecurrenceFormat.Read(e),
+        CustomFields = CustomAttributeFormat.ReadValues(e, defs),
         Position = (string?)e.Attribute("POSSTRING") ?? "",
         Subtasks = includeSubtasks
-            ? e.Elements("TASK").Select(child => Project(child, taskIds)).ToList()
+            ? e.Elements("TASK").Select(child => Project(child, taskIds, defs)).ToList()
             : Array.Empty<TodoTask>(),
     };
 
@@ -419,6 +455,13 @@ public sealed class TodoListDocument
             ? FindTaskElement(pid) ?? throw new TaskNotFoundException(pid)
             : _root;
 
+        // Validate custom-field assignments before allocating an ID or building anything, so a rejected
+        // field makes the whole add a no-op (no burned ID, document untouched). Empty values are
+        // dropped — they have nothing to set on a new task.
+        var customToSet = req.CustomFields.Where(f => !string.IsNullOrEmpty(f.Value)).ToList();
+        var customDefs = customToSet.Count == 0 ? null : CustomAttributeFormat.DefinitionMap(_root);
+        foreach (var f in customToSet) CustomAttributeFormat.ValidateSettable(f.Id, customDefs!);
+
         var now = _clock.Now;
         var e = new XElement("TASK",
             new XAttribute("ID", AllocateId()),
@@ -445,6 +488,7 @@ public sealed class TodoListDocument
         SetMulti(e, "ALLOCATEDTO", "PERSON", req.AllocatedTo);
         SetMulti(e, "FILEREFPATH", "FILEREFPATH", req.FileLinks, trim: false);
         if (req.AllocatedBy is not null) SetAllocatedBy(e, req.AllocatedBy);
+        foreach (var f in customToSet) CustomAttributeFormat.SetValue(e, f.Id, f.Value, customDefs!);
         Touch(e, now);
 
         var siblings = parent.Elements("TASK").ToList();
@@ -470,6 +514,9 @@ public sealed class TodoListDocument
             throw new FormattedCommentsException(
                 id, string.IsNullOrEmpty(fmt) || fmt == CommentFormat.PlainText ? "formatted" : fmt);
         }
+        // Validate custom-field assignments up front too, so a rejected field (unknown/calculation)
+        // leaves the document untouched rather than half-applied.
+        var customDefs = ValidateCustomFields(req.CustomFields);
         var now = _clock.Now;
 
         if (req.Title is not null) e.SetAttributeValue("TITLE", req.Title);
@@ -514,6 +561,9 @@ public sealed class TodoListDocument
         if (req.Categories is not null) SetMulti(e, "CATEGORY", "CATEGORY", req.Categories);
         if (req.AllocatedTo is not null) SetMulti(e, "ALLOCATEDTO", "PERSON", req.AllocatedTo);
         if (req.FileLinks is not null) SetMulti(e, "FILEREFPATH", "FILEREFPATH", req.FileLinks, trim: false);
+        if (req.CustomFields is not null)
+            foreach (var f in req.CustomFields)
+                CustomAttributeFormat.SetValue(e, f.Id, f.Value, customDefs!);
 
         Touch(e, now);
         TouchRoot(now);
@@ -928,6 +978,21 @@ public sealed class TodoListDocument
 
     private static void SetAllocatedBy(XElement e, string allocatedBy) =>
         e.SetAttributeValue("ALLOCATEDBY", TrimToNull(allocatedBy));
+
+    /// <summary>
+    /// Validates a set of custom-field assignments without mutating anything, returning the list's
+    /// definition map for reuse (null when there are no assignments). Throws on the first field that
+    /// is undefined on the list or is a calculation, so <see cref="UpdateTask"/> can bail out before
+    /// touching the document.
+    /// </summary>
+    private IReadOnlyDictionary<string, CustomAttributeDefinition>? ValidateCustomFields(
+        IReadOnlyList<CustomFieldSet>? fields)
+    {
+        if (fields is null || fields.Count == 0) return null;
+        var defs = CustomAttributeFormat.DefinitionMap(_root);
+        foreach (var f in fields) CustomAttributeFormat.ValidateSettable(f.Id, defs);
+        return defs;
+    }
 
     private static void SetFlag(XElement e, bool flag) =>
         e.SetAttributeValue("FLAG", flag ? "1" : null);

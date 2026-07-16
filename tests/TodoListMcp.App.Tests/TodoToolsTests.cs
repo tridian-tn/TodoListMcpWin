@@ -1,6 +1,7 @@
 using System.Text;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using ModelContextProtocol.Server;
 using TodoListMcp.App;
 using TodoListMcp.App.Mcp;
 using TodoListMcp.Core;
@@ -273,6 +274,132 @@ public class TodoToolsTests
             tools.SetRecurrence(id: 1, pattern: "everyNDays", interval: 3, list: "work");
             var t = tools.ClearRecurrence(id: 1, list: "work");
             Assert.Null(t.Recurrence);
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    // ---- Custom fields -------------------------------------------------------
+
+    // A list defining an MR (string) field, a TAGS fixed multi-select and a TOTAL calculation.
+    private const string CustomFieldTdl =
+        "<?xml version=\"1.0\" encoding=\"utf-16\"?>" +
+        "<TODOLIST PROJECTNAME=\"T\" NEXTUNIQUEID=\"2\">" +
+        "<CUSTOMATTRIBDEF ID=\"MR\" LABEL=\"Merge Request\" TYPE=\"0\" ENABLED=\"1\"/>" +
+        "<CUSTOMATTRIBDEF ID=\"TAGS\" LABEL=\"Tags\" TYPE=\"1024\" ENABLED=\"1\"/>" +
+        "<CUSTOMATTRIBDEF ID=\"TOTAL\" LABEL=\"Total\" TYPE=\"9\" ENABLED=\"1\"/>" +
+        "<TASK ID=\"1\" TITLE=\"A\" POS=\"0\" POSSTRING=\"1\"/></TODOLIST>";
+
+    private static (TodoTools tools, string dir) NewToolsWithCustomFields()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "tdlmcp_cf_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "list.tdl");
+        File.WriteAllText(path, CustomFieldTdl, Encoding.Unicode);
+        var options = new TodoListMcpOptions { Files = new() { new TodoFileEntry { Alias = "work", Path = path } } };
+        var manager = new TodoListManager(new StubOptionsMonitor(options), NullLogger<TodoListManager>.Instance);
+        return (new TodoTools(manager), dir);
+    }
+
+    [Fact]
+    public void AddTask_sets_a_custom_field_through_the_tool_surface()
+    {
+        var (tools, dir) = NewToolsWithCustomFields();
+        try
+        {
+            var t = tools.AddTask(
+                title: "X",
+                customFields: new Dictionary<string, string> { ["MR"] = "12345" },
+                list: "work");
+            var mr = Assert.Single(t.CustomFields);
+            Assert.Equal("MR", mr.Id);
+            Assert.Equal("12345", mr.Value);
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
+    public void UpdateTask_clears_a_custom_field_with_an_empty_value()
+    {
+        var (tools, dir) = NewToolsWithCustomFields();
+        try
+        {
+            tools.UpdateTask(id: 1, customFields: new Dictionary<string, string> { ["MR"] = "99" }, list: "work");
+            var cleared = tools.UpdateTask(id: 1, customFields: new Dictionary<string, string> { ["MR"] = "" }, list: "work");
+            Assert.Empty(cleared.CustomFields);
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
+    public void UpdateTask_rejects_a_calculation_custom_field_through_the_tool_surface()
+    {
+        var (tools, dir) = NewToolsWithCustomFields();
+        try
+        {
+            Assert.Throws<ArgumentException>(() => tools.UpdateTask(
+                id: 1, customFields: new Dictionary<string, string> { ["TOTAL"] = "5" }, list: "work"));
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
+    public void SearchTasks_filters_by_a_custom_field_value()
+    {
+        var (tools, dir) = NewToolsWithCustomFields();
+        try
+        {
+            tools.UpdateTask(id: 1, customFields: new Dictionary<string, string> { ["MR"] = "12345" }, list: "work");
+            Assert.Single(tools.SearchTasks(customFieldId: "MR", customFieldValue: "12345", list: "work"));
+            Assert.Empty(tools.SearchTasks(customFieldId: "MR", customFieldValue: "nope", list: "work"));
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
+    public void AddTask_round_trips_a_multi_select_value_through_the_tool_surface()
+    {
+        // The newline-joined dictionary value must survive the write-to-disk + reload at the tool
+        // boundary (the &#xA; character-reference round-trip), not just in memory.
+        var (tools, dir) = NewToolsWithCustomFields();
+        try
+        {
+            var added = tools.AddTask(
+                title: "X",
+                customFields: new Dictionary<string, string> { ["TAGS"] = "alpha\ngamma" },
+                list: "work");
+            var reread = tools.GetTask(id: added.Id, list: "work");
+            Assert.Equal(new[] { "alpha", "gamma" }, reread.CustomFields.Single(c => c.Id == "TAGS").Values);
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
+    public void GetCustomFields_lists_the_definitions()
+    {
+        var (tools, dir) = NewToolsWithCustomFields();
+        try
+        {
+            var defs = tools.GetCustomFields(list: "work");
+            Assert.Equal(new[] { "MR", "TAGS", "TOTAL" }, defs.Select(d => d.Id).OrderBy(x => x).ToArray());
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Theory]
+    [InlineData(nameof(TodoTools.AddTask))]
+    [InlineData(nameof(TodoTools.UpdateTask))]
+    public void Tool_with_customFields_param_builds_a_valid_schema(string methodName)
+    {
+        // The server registers each tool at startup by building an McpServerTool from the method; if the
+        // Dictionary<string,string> customFields parameter had no JSON-schema mapping this would throw,
+        // and the server would fail to start. Prove it builds and exposes the parameter.
+        var (tools, dir) = NewToolsWithCustomFields();
+        try
+        {
+            var method = typeof(TodoTools).GetMethod(methodName)!;
+            var tool = McpServerTool.Create(method, tools);
+            var schema = tool.ProtocolTool.InputSchema.ToString();
+            Assert.Contains("customFields", schema);
         }
         finally { Directory.Delete(dir, recursive: true); }
     }

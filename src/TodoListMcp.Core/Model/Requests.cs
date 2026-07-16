@@ -1,5 +1,18 @@
 namespace TodoListMcp.Core.Model;
 
+/// <summary>
+/// One custom-field assignment: set field <see cref="Id"/> to <see cref="Value"/>. An empty (or null)
+/// value clears the field. For a multi-select field, join the selected items with newlines. The field
+/// must be defined on the list; calculation fields (whose value ToDoList derives) can't be set.
+/// </summary>
+public sealed class CustomFieldSet
+{
+    public required string Id { get; init; }
+
+    /// <summary>The value to store; empty/null clears the field. Multi-select items are newline-joined.</summary>
+    public string? Value { get; init; }
+}
+
 /// <summary>Parameters for creating a new task.</summary>
 public sealed class AddTaskRequest
 {
@@ -63,6 +76,12 @@ public sealed class AddTaskRequest
     /// normalisation); exact duplicates are collapsed case-insensitively, matching ToDoList.
     /// </summary>
     public IReadOnlyList<string> FileLinks { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Custom-field values to set on the new task. Each field must be defined on the list; an empty
+    /// value is ignored here (there is nothing to clear on a new task).
+    /// </summary>
+    public IReadOnlyList<CustomFieldSet> CustomFields { get; init; } = Array.Empty<CustomFieldSet>();
 }
 
 /// <summary>
@@ -164,6 +183,13 @@ public sealed class UpdateTaskRequest
     /// exact duplicates are collapsed case-insensitively, matching ToDoList.
     /// </summary>
     public IReadOnlyList<string>? FileLinks { get; init; }
+
+    /// <summary>
+    /// Custom-field values to set. Null = unchanged; each entry sets (empty value clears) that one
+    /// field, leaving other custom fields untouched. Each field must be defined on the list;
+    /// calculation fields can't be set.
+    /// </summary>
+    public IReadOnlyList<CustomFieldSet>? CustomFields { get; init; }
 }
 
 /// <summary>The recurrence patterns this server can author (the common, unambiguous subset). The
@@ -404,4 +430,17 @@ public sealed class TaskQuery
 
     /// <summary>Maximum time spent (inclusive), in hours; mixed units are normalised at 8h/day.</summary>
     public double? MaxSpentHours { get; init; }
+
+    /// <summary>
+    /// Match a custom field by ID (case-insensitive). With <see cref="TaskQuery.CustomFieldValue"/>
+    /// null, matches any task that has a (non-empty) value for this field; otherwise pairs with it.
+    /// </summary>
+    public string? CustomFieldId { get; init; }
+
+    /// <summary>
+    /// The custom-field value to match (requires <see cref="CustomFieldId"/>). Matches
+    /// case-insensitively when the field's value equals it, when any item of a multi-select field
+    /// equals it, or as a substring of the raw value.
+    /// </summary>
+    public string? CustomFieldValue { get; init; }
 }
