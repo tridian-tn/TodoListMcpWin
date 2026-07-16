@@ -202,9 +202,9 @@ internal static class CustomAttributeFormat
     /// </summary>
     public static string ValidateSettable(string id, IReadOnlyDictionary<string, CustomAttributeDefinition> defs)
     {
-        var key = id.Trim().ToUpperInvariant();
-        if (key.Length == 0)
+        if (string.IsNullOrWhiteSpace(id))
             throw new ArgumentException("A custom field ID must not be empty.", nameof(id));
+        var key = id.Trim().ToUpperInvariant();
         if (!defs.TryGetValue(key, out var def))
             throw new ArgumentException(
                 $"No custom field '{id}' is defined on this list. Define it in ToDoList first, "

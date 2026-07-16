@@ -432,8 +432,8 @@ public sealed class TaskQuery
     public double? MaxSpentHours { get; init; }
 
     /// <summary>
-    /// Match a custom field by ID (case-insensitive). With <see cref="CustomFieldValue"/> null, matches
-    /// any task that has a (non-empty) value for this field; otherwise pairs with it.
+    /// Match a custom field by ID (case-insensitive). With <see cref="TaskQuery.CustomFieldValue"/>
+    /// null, matches any task that has a (non-empty) value for this field; otherwise pairs with it.
     /// </summary>
     public string? CustomFieldId { get; init; }
 

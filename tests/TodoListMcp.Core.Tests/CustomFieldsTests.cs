@@ -414,13 +414,17 @@ public class CustomFieldsTests
         Assert.Empty(Task(doc, 2).Elements("CUSTOMATTRIB"));
     }
 
-    [Fact]
-    public void Setting_a_blank_id_is_rejected()
+    [Theory]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public void Setting_a_blank_or_null_id_is_rejected(string? id)
     {
+        // A null ID (possible from an external JSON request despite the required modifier) must be a
+        // controlled ArgumentException, not a NullReferenceException.
         var doc = Doc();
         Assert.Throws<ArgumentException>(() => doc.UpdateTask(1, new UpdateTaskRequest
         {
-            CustomFields = new[] { new CustomFieldSet { Id = "   ", Value = "x" } },
+            CustomFields = new[] { new CustomFieldSet { Id = id!, Value = "x" } },
         }));
     }
 

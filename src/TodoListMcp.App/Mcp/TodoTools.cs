@@ -400,8 +400,8 @@ public sealed class TodoTools
 
     /// <summary>
     /// Maps the tool-boundary custom-field map (ID → value) to the core request shape. Null in → null
-    /// out so update_task reads it as "leave custom fields unchanged"; a supplied map (even empty)
-    /// becomes an explicit set of assignments.
+    /// out so update_task reads it as "leave custom fields unchanged"; a supplied map becomes the set
+    /// of assignments — an empty map yields an empty list, i.e. a no-op (the same effect as null).
     /// </summary>
     private static IReadOnlyList<CustomFieldSet>? ToCustomFieldSets(Dictionary<string, string>? fields) =>
         fields?.Select(kv => new CustomFieldSet { Id = kv.Key, Value = kv.Value }).ToList();
