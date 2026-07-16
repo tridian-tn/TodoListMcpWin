@@ -216,8 +216,9 @@ With the Codex desktop application, enter the Settings, navigate to Integrations
 
 The server also exposes a small **read-only REST facade** so [Super Productivity](https://super-productivity.com)
 can surface your ToDoList tasks as an *issue provider* (the same mechanism as its Jira/GitHub
-integrations). A companion SuperProductivity plugin polls it and links/imports tasks; time tracking and
-status then live in SP. Write-back to the `.tdl` is a future phase — today it is read-only.
+integrations). A companion SuperProductivity plugin —
+[**sp-todolist**](https://github.com/tridian-tn/sp-todolist) — polls it and links/imports tasks; time
+tracking and status then live in SP. Write-back to the `.tdl` is a future phase — today it is read-only.
 
 It runs on the **same port** as the MCP endpoint, under `/integrations/sp/v1`:
 
@@ -234,8 +235,8 @@ Notes:
 * **No CORS by design (this is the access control).** The SP plugin's `fetch` sends no `Origin`, so the
   browser needs no CORS grant; a malicious web page *does* send an `Origin`, and because the facade
   returns none, the browser blocks it from reading your tasks. Keep it loopback-bound.
-* The plugin ships separately (its own repo); point its **Server URL** at this server's root (e.g.
-  `http://localhost:3001`).
+* The plugin ([sp-todolist](https://github.com/tridian-tn/sp-todolist)) ships separately; point its
+  **Server URL** at this server's root (e.g. `http://localhost:3001`).
 
 ## Using the tray app
 
