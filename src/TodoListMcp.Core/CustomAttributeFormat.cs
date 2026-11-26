@@ -131,13 +131,18 @@ internal static class CustomAttributeFormat
     }
 
     /// <summary>
-    /// The label part of an icon-list tag, or the image itself when the tag declares no label — so
-    /// there's always something displayable alongside the value.
+    /// The label part of an icon-list tag, falling back to the image itself when there's no label to
+    /// show — so there's always something displayable alongside the value. ToDoList builds a tag as
+    /// image + ':' + label, so an unlabelled icon can arrive either with no colon at all or with a
+    /// trailing one and nothing after it; both mean the same thing.
     /// </summary>
     private static string IconLabel(string tag)
     {
         var colon = tag.IndexOf(':');
-        return colon < 0 ? tag : tag[(colon + 1)..];
+        if (colon < 0) return tag;
+
+        var label = tag[(colon + 1)..];
+        return string.IsNullOrWhiteSpace(label) ? tag[..colon] : label;
     }
 
     private static CustomFieldDataType ToDataType(int type) => (type & DataMask) switch

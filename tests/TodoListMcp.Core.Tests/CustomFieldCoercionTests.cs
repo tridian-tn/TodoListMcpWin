@@ -20,7 +20,7 @@ public class CustomFieldCoercionTests
     private const string Xml =
         """
         <?xml version="1.0" encoding="utf-16"?>
-        <TODOLIST PROJECTNAME="P" NEXTUNIQUEID="2"><CUSTOMATTRIBDEF ID="TEXT" TYPE="0" ENABLED="1"/><CUSTOMATTRIBDEF ID="WHEN" TYPE="1" ENABLED="1"/><CUSTOMATTRIBDEF ID="COUNT" TYPE="2" ENABLED="1"/><CUSTOMATTRIBDEF ID="RATIO" TYPE="3" ENABLED="1"/><CUSTOMATTRIBDEF ID="DONE" TYPE="4" ENABLED="1"/><CUSTOMATTRIBDEF ID="BADGE" TYPE="5" ENABLED="1"/><CUSTOMATTRIBDEF ID="LINK" TYPE="6" ENABLED="1"/><CUSTOMATTRIBDEF ID="EFFORT" TYPE="7" ENABLED="1"/><CUSTOMATTRIBDEF ID="FRAC" TYPE="8" ENABLED="1"/><CUSTOMATTRIBDEF ID="NEWTYPE" TYPE="12" ENABLED="1"/><CUSTOMATTRIBDEF ID="STAGE" TYPE="512" ENABLED="1" LISTDATA="Alpha&#10;Beta"/><CUSTOMATTRIBDEF ID="TAGS" TYPE="1024" ENABLED="1" LISTDATA="red&#10;green&#10;blue"/><CUSTOMATTRIBDEF ID="FREE" TYPE="256" ENABLED="1" LISTDATA="one&#10;two"/><CUSTOMATTRIBDEF ID="LOOSE" TYPE="768" ENABLED="1" LISTDATA="one&#10;two"/><CUSTOMATTRIBDEF ID="OPEN" TYPE="512" ENABLED="1"/><CUSTOMATTRIBDEF ID="OPENTAGS" TYPE="1024" ENABLED="1"/><CUSTOMATTRIBDEF ID="PADDED" TYPE="512" ENABLED="1" LISTDATA=" Alpha &#10;Beta"/><CUSTOMATTRIBDEF ID="ILIST" TYPE="514" ENABLED="1" LISTDATA="1&#10;2"/><CUSTOMATTRIBDEF ID="DLIST" TYPE="513" ENABLED="1"/><CUSTOMATTRIBDEF ID="MARK" TYPE="517" ENABLED="1" LISTDATA="flag.png:Flag&#10;star.png"/><CUSTOMATTRIBDEF ID="TOTAL" TYPE="9" ENABLED="1"/><TASK ID="1" TITLE="T1" POS="0"/></TODOLIST>
+        <TODOLIST PROJECTNAME="P" NEXTUNIQUEID="2"><CUSTOMATTRIBDEF ID="TEXT" TYPE="0" ENABLED="1"/><CUSTOMATTRIBDEF ID="WHEN" TYPE="1" ENABLED="1"/><CUSTOMATTRIBDEF ID="COUNT" TYPE="2" ENABLED="1"/><CUSTOMATTRIBDEF ID="RATIO" TYPE="3" ENABLED="1"/><CUSTOMATTRIBDEF ID="DONE" TYPE="4" ENABLED="1"/><CUSTOMATTRIBDEF ID="BADGE" TYPE="5" ENABLED="1"/><CUSTOMATTRIBDEF ID="LINK" TYPE="6" ENABLED="1"/><CUSTOMATTRIBDEF ID="EFFORT" TYPE="7" ENABLED="1"/><CUSTOMATTRIBDEF ID="FRAC" TYPE="8" ENABLED="1"/><CUSTOMATTRIBDEF ID="NEWTYPE" TYPE="12" ENABLED="1"/><CUSTOMATTRIBDEF ID="STAGE" TYPE="512" ENABLED="1" LISTDATA="Alpha&#10;Beta"/><CUSTOMATTRIBDEF ID="TAGS" TYPE="1024" ENABLED="1" LISTDATA="red&#10;green&#10;blue"/><CUSTOMATTRIBDEF ID="FREE" TYPE="256" ENABLED="1" LISTDATA="one&#10;two"/><CUSTOMATTRIBDEF ID="LOOSE" TYPE="768" ENABLED="1" LISTDATA="one&#10;two"/><CUSTOMATTRIBDEF ID="OPEN" TYPE="512" ENABLED="1"/><CUSTOMATTRIBDEF ID="OPENTAGS" TYPE="1024" ENABLED="1"/><CUSTOMATTRIBDEF ID="PADDED" TYPE="512" ENABLED="1" LISTDATA=" Alpha &#10;Beta"/><CUSTOMATTRIBDEF ID="ILIST" TYPE="514" ENABLED="1" LISTDATA="1&#10;2"/><CUSTOMATTRIBDEF ID="DLIST" TYPE="513" ENABLED="1"/><CUSTOMATTRIBDEF ID="MARK" TYPE="517" ENABLED="1" LISTDATA="flag.png:Flag&#10;star.png&#10;dot.png:"/><CUSTOMATTRIBDEF ID="TOTAL" TYPE="9" ENABLED="1"/><TASK ID="1" TITLE="T1" POS="0"/></TODOLIST>
         """;
 
     private static TodoListDocument Doc() => TodoListDocument.Parse(Xml, TestData.Clock);
@@ -437,8 +437,11 @@ public class CustomFieldCoercionTests
         // The tag is decoded when the definition is read, so get_custom_fields advertises exactly the
         // values a task stores, with the display labels alongside rather than glued on.
         var def = Doc().GetCustomAttributeDefinitions().Single(d => d.Id == "MARK");
-        Assert.Equal(new[] { "flag.png", "star.png" }, def.ListItems);
-        Assert.Equal(new[] { "Flag", "star.png" }, def.ListItemLabels);   // no label declared → the image
+        Assert.Equal(new[] { "flag.png", "star.png", "dot.png" }, def.ListItems);
+        // ToDoList builds a tag as image + ':' + label, so an unlabelled icon arrives either with no
+        // colon (star.png) or with a trailing one (dot.png:). Both fall back to the image, because a
+        // blank label would show as a blank option.
+        Assert.Equal(new[] { "Flag", "star.png", "dot.png" }, def.ListItemLabels);
 
         // Every other list type is its own label, so nothing is duplicated into that field.
         Assert.Empty(Doc().GetCustomAttributeDefinitions().Single(d => d.Id == "TAGS").ListItemLabels);
@@ -454,8 +457,11 @@ public class CustomFieldCoercionTests
         // Picking the declared tag straight out of get_custom_fields' ListItems works too, and still
         // stores the image rather than the tag.
         Assert.Equal("flag.png", Set("MARK", "flag.png:Flag"));
-        // A tag with no colon is all image, so it matches itself.
+        // A tag with no colon is all image, so it matches itself; so does one with a trailing colon,
+        // whether the caller supplies the bare image or the tag as declared.
         Assert.Equal("star.png", Set("MARK", "star.png"));
+        Assert.Equal("dot.png", Set("MARK", "dot.png"));
+        Assert.Equal("dot.png", Set("MARK", "dot.png:"));
 
         // The label alone isn't a value ToDoList would store, and the error lists the images.
         var message = Rejects("MARK", "Flag").Message;
