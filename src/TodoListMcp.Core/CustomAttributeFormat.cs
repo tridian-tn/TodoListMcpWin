@@ -197,9 +197,9 @@ internal static class CustomAttributeFormat
     public static PreparedCustomField Prepare(
         string id, string? value, IReadOnlyDictionary<string, CustomAttributeDefinition> defs)
     {
-        var key = ValidateSettable(id, defs);
+        var def = ValidateSettable(id, defs);
         return new PreparedCustomField(
-            key, string.IsNullOrEmpty(value) ? null : Encode(defs[key], value));
+            def.Id, string.IsNullOrEmpty(value) ? null : Encode(def, value));
     }
 
     /// <summary>
@@ -212,9 +212,17 @@ internal static class CustomAttributeFormat
     /// </summary>
     public static void Apply(XElement task, PreparedCustomField field)
     {
+        if (string.IsNullOrEmpty(field.Id))
+        {
+            throw new ArgumentException(
+                "A prepared custom field must carry a field ID; build it with Prepare.", nameof(field));
+        }
+
         var existing = ExistingValueElements(task, field.Id);
 
-        if (field.Value is null)
+        // An empty value clears, exactly as a null one does: ToDoList skips an empty VALUE on read,
+        // so writing one would leave a dead element behind instead of removing the field.
+        if (string.IsNullOrEmpty(field.Value))
         {
             foreach (var e in existing) e.Remove();
             return;
@@ -333,7 +341,7 @@ internal static class CustomAttributeFormat
             unitText = text[split..];
         }
 
-        if (!TryParseNumber(amountText.Trim(), out var amount))
+        if (!TryParseNumber(amountText, out var amount))
         {
             throw Invalid(def, value, "a time period, e.g. 3h, 90 mins or 2.5:D");
         }
@@ -359,15 +367,29 @@ internal static class CustomAttributeFormat
             _ => throw Invalid(def, value, "true or false"),
         };
 
-    /// <summary>An integer is stored with "%d", so it's re-emitted in canonical form.</summary>
-    private static string EncodeInteger(CustomAttributeDefinition def, string value) =>
-        int.TryParse(value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var i)
-            ? i.ToString(CultureInfo.InvariantCulture)
-            : throw Invalid(def, value, "a whole number");
+    /// <summary>
+    /// An integer is stored with "%d", so it's re-emitted in canonical form. ToDoList reads these
+    /// with <c>_ttoi</c>, which is 32-bit too, so a whole number that doesn't fit is refused — and
+    /// told it's out of range rather than that it isn't whole.
+    /// </summary>
+    private static string EncodeInteger(CustomAttributeDefinition def, string value)
+    {
+        if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i))
+        {
+            return i.ToString(CultureInfo.InvariantCulture);
+        }
+
+        var digits = value.Trim().TrimStart('+', '-');
+        if (digits.Length > 0 && digits.All(char.IsAsciiDigit))
+        {
+            throw Invalid(def, value, $"a whole number between {int.MinValue} and {int.MaxValue}");
+        }
+        throw Invalid(def, value, "a whole number");
+    }
 
     /// <summary>A decimal is stored with "%lf" — see <see cref="NumberFormat"/>.</summary>
     private static string EncodeDouble(CustomAttributeDefinition def, string value) =>
-        TryParseNumber(value.Trim(), out var d)
+        TryParseNumber(value, out var d)
             ? FormatNumber(d)
             : throw Invalid(def, value, "a number");
 
@@ -404,10 +426,22 @@ internal static class CustomAttributeFormat
     /// casing, so what's stored matches an item exactly. Only a fixed list has a closed set — an auto
     /// list accumulates whatever gets typed into it — and a fixed list that declares no values yet is
     /// left alone rather than rejecting everything. A multi-select selection is checked item by item,
-    /// and one that selects nothing at all clears the field rather than storing an empty value.
+    /// duplicates collapse as they do for categories and assignees, and one that selects nothing at
+    /// all clears the field rather than storing an empty value.
     /// </summary>
     private static string? EncodeListSelection(CustomAttributeDefinition def, string value)
     {
+        // Callers are told to newline-join items for a multi-select field, so doing it to a
+        // single-select one is an easy mistake and worth naming rather than reporting the whole
+        // string as an unknown value.
+        if (!def.IsMultiValued && value.Contains(ItemSep))
+        {
+            throw new ArgumentException(
+                $"Custom field '{def.Id}' holds a single value, so newline-joined items can't be "
+                + "stored in it (that form is for multi-select fields).",
+                nameof(value));
+        }
+
         if (def.ListType is not (CustomFieldListType.Fixed or CustomFieldListType.FixedMulti)
             || def.ListItems.Count == 0)
         {
@@ -432,14 +466,19 @@ internal static class CustomAttributeFormat
             }
             resolved.Add(match);
         }
-        return resolved.Count == 0 ? null : string.Join(ItemSep, resolved);
+
+        // Resolving to the definition's casing first turns a case-only duplicate into an exact one,
+        // so this collapses the same cases SetMulti does for CATEGORY and ALLOCATEDTO.
+        var unique = resolved.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return unique.Count == 0 ? null : string.Join(ItemSep, unique);
     }
 
     /// <summary>
     /// Parses a number for a custom value, requiring a finite result. The finite check matters:
     /// "NaN", "Infinity" and "-Infinity" all parse under <see cref="NumberStyles.Float"/> and would
     /// then be written as that literal text, which ToDoList's own reader takes as zero — so they're
-    /// refused here rather than stored as a number-shaped field holding words.
+    /// refused here rather than stored as a number-shaped field holding words. The style allows
+    /// surrounding whitespace, so callers needn't trim first.
     /// </summary>
     private static bool TryParseNumber(string text, out double value) =>
         double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value)
@@ -449,16 +488,18 @@ internal static class CustomAttributeFormat
         value.ToString(NumberFormat, CultureInfo.InvariantCulture);
 
     private static ArgumentException Invalid(CustomAttributeDefinition def, string value, string expected) =>
-        new($"'{value}' isn't a valid value for custom field '{def.Id}' (a {def.DataType} field); "
+        new($"'{value}' isn't a valid {def.DataType} value for custom field '{def.Id}'; "
             + $"expected {expected}.",
             nameof(value));
 
     /// <summary>
     /// Checks that a custom field can be set at all — the ID is non-empty, the field is defined on the
     /// list, and it is not a calculation — throwing an <see cref="ArgumentException"/> otherwise.
-    /// Returns the resolved (upper-cased) key.
+    /// Returns the definition, whose <see cref="CustomAttributeDefinition.Id"/> is the resolved
+    /// (upper-cased) key, so the caller needn't look it up again.
     /// </summary>
-    private static string ValidateSettable(string id, IReadOnlyDictionary<string, CustomAttributeDefinition> defs)
+    private static CustomAttributeDefinition ValidateSettable(
+        string id, IReadOnlyDictionary<string, CustomAttributeDefinition> defs)
     {
         if (string.IsNullOrWhiteSpace(id))
             throw new ArgumentException("A custom field ID must not be empty.", nameof(id));
@@ -472,7 +513,7 @@ internal static class CustomAttributeFormat
             throw new ArgumentException(
                 $"Custom field '{key}' is a calculation; its value is derived by ToDoList and can't be set.",
                 nameof(id));
-        return key;
+        return def;
     }
 
     private static IReadOnlyList<XElement> ExistingValueElements(XElement task, string upperId) =>

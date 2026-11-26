@@ -349,6 +349,11 @@ for it (a `<CUSTOMATTRIB>` element).
   values (matched case-insensitively, stored in the list's own casing); an **auto** list accepts
   anything, since it accumulates whatever gets typed into it. A data type a newer ToDoList introduces
   falls back to verbatim rather than erroring.
+
+  Three details worth knowing: an `integer` field is 32-bit (ToDoList reads it with `_ttoi`), so a
+  larger whole number is refused rather than wrapped; a multi-select field collapses duplicate items
+  the way categories and assignees do; and a `date` carries seconds but not finer, since the format
+  holds six decimals of a day (~86 ms).
 - **Search** — `search_tasks` takes `customFieldId` (match tasks that have the field) and optional
   `customFieldValue` (equals a value or a selected item, or a case-insensitive substring). Note it
   matches the **stored** value, so a date, time period or bool field is matched against its on-disk

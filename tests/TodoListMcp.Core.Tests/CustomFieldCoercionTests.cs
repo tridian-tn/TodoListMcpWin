@@ -77,6 +77,20 @@ public class CustomFieldCoercionTests
         Assert.Equal("2026-12-01 14:30", DateTime.FromOADate(serial).ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture));
     }
 
+    [Fact]
+    public void A_date_carries_seconds_but_not_sub_second_precision()
+    {
+        // Six decimals of a day is about 86ms, so seconds survive the round trip and anything finer
+        // doesn't. That's ToDoList's own format rather than a choice made here; stating the drift
+        // means nobody has to rediscover it.
+        var stored = Set("WHEN", "2026-12-01T14:30:45")!;
+        Assert.Equal("46357.604688", stored);
+
+        var read = DateTime.FromOADate(double.Parse(stored, CultureInfo.InvariantCulture));
+        Assert.Equal("2026-12-01 14:30:45", read.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
+        Assert.Equal(43, read.Millisecond);
+    }
+
     // ---- Time period ---------------------------------------------------------
 
     [Theory]
@@ -169,6 +183,15 @@ public class CustomFieldCoercionTests
     public void A_non_integer_is_rejected_rather_than_truncated(string given) =>
         Assert.Contains("COUNT", Rejects("COUNT", given).Message);
 
+    [Fact]
+    public void A_whole_number_too_large_for_the_field_is_told_the_range()
+    {
+        // ToDoList reads these with _ttoi, so the 32-bit limit is real — but the message has to say
+        // the value is out of range rather than claim it isn't a whole number.
+        Assert.Contains("2147483647", Rejects("COUNT", "99999999999").Message);
+        Assert.DoesNotContain("2147483647", Rejects("COUNT", "ten").Message);
+    }
+
     [Theory]
     [InlineData("3.5", "3.500000")]
     [InlineData("2", "2.000000")]
@@ -237,6 +260,31 @@ public class CustomFieldCoercionTests
         Assert.Equal("red\nblue", Set("TAGS", "RED\nBlue"));
         Assert.Contains("purple", Rejects("TAGS", "red\npurple").Message);
     }
+
+    [Fact]
+    public void A_multi_select_collapses_duplicate_items()
+    {
+        // SetMulti collapses duplicates for categories and assignees, so a repeated tag shouldn't
+        // show twice here either. Case-only repeats resolve to the list's casing first.
+        Assert.Equal("red", Set("TAGS", "red\nRED"));
+        Assert.Equal("red\nblue", Set("TAGS", "red\nblue\nRed"));
+    }
+
+    [Fact]
+    public void Newline_joined_items_on_a_single_select_field_name_the_mistake()
+    {
+        // Callers are told to newline-join items for multi-select fields, so the error should say the
+        // field holds one value rather than report the joined string as an unknown value.
+        var message = Rejects("STAGE", "Alpha\nBeta").Message;
+        Assert.Contains("single value", message);
+        Assert.Contains("multi-select", message);
+    }
+
+    [Fact]
+    public void A_single_select_auto_list_also_refuses_newline_joined_items() =>
+        // The check is about the field holding one value, so it runs before the fixed-list membership
+        // check and covers auto lists, which have no declared values to check against.
+        Assert.Contains("single value", Rejects("FREE", "one\ntwo").Message);
 
     [Fact]
     public void A_multi_select_that_selects_nothing_clears_the_field()
