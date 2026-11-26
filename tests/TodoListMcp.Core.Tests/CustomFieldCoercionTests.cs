@@ -20,7 +20,7 @@ public class CustomFieldCoercionTests
     private const string Xml =
         """
         <?xml version="1.0" encoding="utf-16"?>
-        <TODOLIST PROJECTNAME="P" NEXTUNIQUEID="2"><CUSTOMATTRIBDEF ID="TEXT" TYPE="0" ENABLED="1"/><CUSTOMATTRIBDEF ID="WHEN" TYPE="1" ENABLED="1"/><CUSTOMATTRIBDEF ID="COUNT" TYPE="2" ENABLED="1"/><CUSTOMATTRIBDEF ID="RATIO" TYPE="3" ENABLED="1"/><CUSTOMATTRIBDEF ID="DONE" TYPE="4" ENABLED="1"/><CUSTOMATTRIBDEF ID="BADGE" TYPE="5" ENABLED="1"/><CUSTOMATTRIBDEF ID="LINK" TYPE="6" ENABLED="1"/><CUSTOMATTRIBDEF ID="EFFORT" TYPE="7" ENABLED="1"/><CUSTOMATTRIBDEF ID="FRAC" TYPE="8" ENABLED="1"/><CUSTOMATTRIBDEF ID="NEWTYPE" TYPE="12" ENABLED="1"/><CUSTOMATTRIBDEF ID="STAGE" TYPE="512" ENABLED="1" LISTDATA="Alpha&#10;Beta"/><CUSTOMATTRIBDEF ID="TAGS" TYPE="1024" ENABLED="1" LISTDATA="red&#10;green&#10;blue"/><CUSTOMATTRIBDEF ID="FREE" TYPE="256" ENABLED="1" LISTDATA="one&#10;two"/><CUSTOMATTRIBDEF ID="LOOSE" TYPE="768" ENABLED="1" LISTDATA="one&#10;two"/><CUSTOMATTRIBDEF ID="OPEN" TYPE="512" ENABLED="1"/><CUSTOMATTRIBDEF ID="OPENTAGS" TYPE="1024" ENABLED="1"/><CUSTOMATTRIBDEF ID="PADDED" TYPE="512" ENABLED="1" LISTDATA=" Alpha &#10;Beta"/><TASK ID="1" TITLE="T1" POS="0"/></TODOLIST>
+        <TODOLIST PROJECTNAME="P" NEXTUNIQUEID="2"><CUSTOMATTRIBDEF ID="TEXT" TYPE="0" ENABLED="1"/><CUSTOMATTRIBDEF ID="WHEN" TYPE="1" ENABLED="1"/><CUSTOMATTRIBDEF ID="COUNT" TYPE="2" ENABLED="1"/><CUSTOMATTRIBDEF ID="RATIO" TYPE="3" ENABLED="1"/><CUSTOMATTRIBDEF ID="DONE" TYPE="4" ENABLED="1"/><CUSTOMATTRIBDEF ID="BADGE" TYPE="5" ENABLED="1"/><CUSTOMATTRIBDEF ID="LINK" TYPE="6" ENABLED="1"/><CUSTOMATTRIBDEF ID="EFFORT" TYPE="7" ENABLED="1"/><CUSTOMATTRIBDEF ID="FRAC" TYPE="8" ENABLED="1"/><CUSTOMATTRIBDEF ID="NEWTYPE" TYPE="12" ENABLED="1"/><CUSTOMATTRIBDEF ID="STAGE" TYPE="512" ENABLED="1" LISTDATA="Alpha&#10;Beta"/><CUSTOMATTRIBDEF ID="TAGS" TYPE="1024" ENABLED="1" LISTDATA="red&#10;green&#10;blue"/><CUSTOMATTRIBDEF ID="FREE" TYPE="256" ENABLED="1" LISTDATA="one&#10;two"/><CUSTOMATTRIBDEF ID="LOOSE" TYPE="768" ENABLED="1" LISTDATA="one&#10;two"/><CUSTOMATTRIBDEF ID="OPEN" TYPE="512" ENABLED="1"/><CUSTOMATTRIBDEF ID="OPENTAGS" TYPE="1024" ENABLED="1"/><CUSTOMATTRIBDEF ID="PADDED" TYPE="512" ENABLED="1" LISTDATA=" Alpha &#10;Beta"/><CUSTOMATTRIBDEF ID="ILIST" TYPE="514" ENABLED="1" LISTDATA="1&#10;2"/><CUSTOMATTRIBDEF ID="DLIST" TYPE="513" ENABLED="1"/><CUSTOMATTRIBDEF ID="MARK" TYPE="517" ENABLED="1" LISTDATA="flag.png:Flag&#10;star.png"/><TASK ID="1" TITLE="T1" POS="0"/></TODOLIST>
         """;
 
     private static TodoListDocument Doc() => TodoListDocument.Parse(Xml, TestData.Clock);
@@ -48,6 +48,19 @@ public class CustomFieldCoercionTests
             CustomFields = new[] { new CustomFieldSet { Id = id, Value = value } },
         }));
 
+    /// <summary>
+    /// Asserts a value was refused for not fitting its field's type — naming the field, the type and
+    /// an expectation. Checking the reason matters: the field ID alone also appears in the "no such
+    /// field" message, so asserting that much would pass on a completely different failure.
+    /// </summary>
+    private static void RejectsAs(string id, string value, string dataType)
+    {
+        var message = Rejects(id, value).Message;
+        Assert.Contains($"custom field '{id}'", message);
+        Assert.Contains($"isn't a valid {dataType} value", message);
+        Assert.Contains("expected", message);
+    }
+
     // ---- Date ----------------------------------------------------------------
 
     [Theory]
@@ -73,14 +86,29 @@ public class CustomFieldCoercionTests
     [InlineData("1899-12-30")]   // the epoch itself converts to serial 0, which reads as no date
     [InlineData("0099-12-31")]   // ToOADate throws below year 100; must surface as a field error
     [InlineData("0100-01-01")]   // in the OLE range but negative, same as a negative serial
-    [InlineData("0.0000001")]    // positive, but rounds to 0.000000 once stored
+    [InlineData("0.0000001")]         // positive, but rounds to 0.000000 once stored
+    [InlineData("2958465.9999999")]   // inside the range, but rounds up past the top of it
+    [InlineData("2026-02-30")]        // well-formed but no such day
+    [InlineData("2025-02-29")]        // not a leap year
+    [InlineData("2026-13-01")]
     public void A_value_that_isnt_an_iso_date_is_rejected(string given) =>
-        Assert.Contains("WHEN", Rejects("WHEN", given).Message);
+        RejectsAs("WHEN", given, "Date");
 
-    [Fact]
-    public void The_day_after_the_epoch_is_the_first_storable_date() =>
-        // 1899-12-31 is serial 1 — the boundary the rejection cases above sit just outside.
-        Assert.Equal("1.000000", Set("WHEN", "1899-12-31"));
+    [Theory]
+    [InlineData("1899-12-31", "1.000000")]              // serial 1: the first storable date
+    [InlineData("2958465.999999", "2958465.999999")]    // the last storable serial
+    [InlineData("2958465", "2958465.000000")]
+    [InlineData("2024-02-29", "45351.000000")]          // a real leap day
+    public void The_edges_of_the_storable_range_are_accepted(string given, string stored) =>
+        Assert.Equal(stored, Set("WHEN", given));
+
+    [Theory]
+    [InlineData("2026-12-01 14:30:45", "46357.604688")]
+    [InlineData("2026-12-01T14:30:45.123", "46357.604689")]
+    [InlineData("2026-12-01 14:30:45.5", "46357.604693")]
+    [InlineData("46357.6041666667", "46357.604167")]    // a finer serial is rounded, not refused
+    public void Every_accepted_date_form_is_covered(string given, string stored) =>
+        Assert.Equal(stored, Set("WHEN", given));
 
     [Fact]
     public void A_written_date_reads_back_as_the_same_instant()
@@ -113,6 +141,15 @@ public class CustomFieldCoercionTests
     [InlineData("3 weekdays", "3.000000:K")]
     [InlineData("1.5W", "1.500000:W")]
     [InlineData("4", "4.000000:H")]   // no unit → hours, ToDoList's own default
+    [InlineData("3:", "3.000000:H")]  // a colon with nothing after it falls back to hours too
+    [InlineData(".5d", "0.500000:D")]
+    [InlineData("3 HOURS", "3.000000:H")]
+    [InlineData("2.5:days", "2.500000:D")]
+    // The unit is the trailing letters, so an exponent in the amount isn't mistaken for one — and a
+    // bare amount parses the same as the colon form of the same value.
+    [InlineData("1e3", "1000.000000:H")]
+    [InlineData("1e3h", "1000.000000:H")]
+    [InlineData("1e3:H", "1000.000000:H")]
     public void Time_period_is_stored_as_the_amount_then_its_unit_letter(string given, string stored) =>
         Assert.Equal(stored, Set("EFFORT", given));
 
@@ -134,7 +171,7 @@ public class CustomFieldCoercionTests
     [InlineData("NaN:H")]
     [InlineData("Infinity:D")]
     public void An_unparseable_time_period_is_rejected(string given) =>
-        Assert.Contains("EFFORT", Rejects("EFFORT", given).Message);
+        RejectsAs("EFFORT", given, "TimePeriod");
 
     [Fact]
     public void A_negative_time_period_is_clamped_to_zero() =>
@@ -151,11 +188,14 @@ public class CustomFieldCoercionTests
     [InlineData("1")]
     [InlineData("+")]
     [InlineData("on")]
+    [InlineData("y")]
+    [InlineData(" true ")]
     public void True_is_stored_as_a_single_plus(string given) => Assert.Equal("+", Set("DONE", given));
 
     [Theory]
     [InlineData("false")]
     [InlineData("no")]
+    [InlineData("n")]
     [InlineData("0")]
     [InlineData("off")]
     public void False_stores_nothing_because_an_absent_value_reads_as_false(string given) =>
@@ -177,7 +217,7 @@ public class CustomFieldCoercionTests
     [InlineData("2")]
     [InlineData("t")]
     public void A_non_boolean_value_is_rejected(string given) =>
-        Assert.Contains("DONE", Rejects("DONE", given).Message);
+        RejectsAs("DONE", given, "Bool");
 
     // ---- Integer, double, fraction -------------------------------------------
 
@@ -193,7 +233,7 @@ public class CustomFieldCoercionTests
     [InlineData("ten")]
     [InlineData("12 points")]
     public void A_non_integer_is_rejected_rather_than_truncated(string given) =>
-        Assert.Contains("COUNT", Rejects("COUNT", given).Message);
+        RejectsAs("COUNT", given, "Integer");
 
     [Fact]
     public void A_whole_number_too_large_for_the_field_is_told_the_range()
@@ -202,6 +242,17 @@ public class CustomFieldCoercionTests
         // the value is out of range rather than claim it isn't a whole number.
         Assert.Contains("2147483647", Rejects("COUNT", "99999999999").Message);
         Assert.DoesNotContain("2147483647", Rejects("COUNT", "ten").Message);
+    }
+
+    [Fact]
+    public void The_32_bit_boundary_is_storable_and_one_past_it_is_not()
+    {
+        // The limit itself, not an order of magnitude past it: this is where an off-by-one or a
+        // switch to long/uint parsing would break _ttoi compatibility.
+        Assert.Equal("2147483647", Set("COUNT", "2147483647"));
+        Assert.Equal("-2147483648", Set("COUNT", "-2147483648"));
+        Assert.Contains("2147483647", Rejects("COUNT", "2147483648").Message);
+        Assert.Contains("2147483647", Rejects("COUNT", "-2147483649").Message);
     }
 
     [Theory]
@@ -220,7 +271,7 @@ public class CustomFieldCoercionTests
     [InlineData("Infinity")]
     [InlineData("-Infinity")]
     public void A_non_numeric_double_is_rejected(string given) =>
-        Assert.Contains("RATIO", Rejects("RATIO", given).Message);
+        RejectsAs("RATIO", given, "Double");
 
     [Theory]
     [InlineData("3/4", "3/4")]
@@ -239,7 +290,18 @@ public class CustomFieldCoercionTests
     [InlineData("NaN/2")]
     [InlineData("3/Infinity")]
     public void An_unparseable_fraction_is_rejected(string given) =>
-        Assert.Contains("FRAC", Rejects("FRAC", given).Message);
+        RejectsAs("FRAC", given, "Fraction");
+
+    [Theory]
+    [InlineData("4/2", "4/2")]     // not reduced to 2, and not turned into a decimal
+    [InlineData("0/4", "0/4")]
+    [InlineData("3/-4", "3/-4")]   // only a zero denominator is refused
+    [InlineData(".5", ".5")]
+    [InlineData("1e2", "1e2")]
+    public void Fraction_text_is_never_re_formatted(string given, string stored) =>
+        // "No numeric re-format for this type" is the claim EncodeFraction makes; an unreduced
+        // fraction surviving is what proves it.
+        Assert.Equal(stored, Set("FRAC", given));
 
     // ---- Types stored as given -----------------------------------------------
 
@@ -297,6 +359,54 @@ public class CustomFieldCoercionTests
         // The check is about the field holding one value, so it runs before the fixed-list membership
         // check and covers auto lists, which have no declared values to check against.
         Assert.Contains("single value", Rejects("FREE", "one\ntwo").Message);
+
+    [Theory]
+    [InlineData("TAGS", "red\r\nblue", "red\nblue")]      // membership-checked path
+    [InlineData("LOOSE", "one\r\ntwo", "one\ntwo")]       // unchecked path
+    public void Crlf_joined_items_split_like_newline_joined_ones(string id, string given, string stored) =>
+        // A client on Windows is the likeliest source of CRLF, and a stray carriage return would
+        // leave ToDoList showing an item called "one\r".
+        Assert.Equal(stored, Set(id, given));
+
+    [Theory]
+    [InlineData("TAGS", "red\n \nblue", "red\nblue")]
+    [InlineData("LOOSE", "one\n\t\ntwo", "one\ntwo")]
+    public void A_blank_item_in_a_multi_select_is_dropped(string id, string given, string stored) =>
+        // The read path and SetMulti both drop blank items; the checked write path used to send a
+        // whitespace-only one through membership and report the empty string as an unknown value.
+        Assert.Equal(stored, Set(id, given));
+
+    [Fact]
+    public void An_icon_lists_value_is_the_image_not_the_declared_tag()
+    {
+        // ToDoList declares icon-list items as "image:label" (EncodeImageTag) but stores only the
+        // image on the task (DecodeImageTag, then SetSelectedTaskCustomAttributeData with sImage), so
+        // the image is the settable value. Verified against ToDoList_9.2.
+        Assert.Equal("flag.png", Set("MARK", "flag.png"));
+        // Picking the declared tag straight out of get_custom_fields' ListItems works too, and still
+        // stores the image rather than the tag.
+        Assert.Equal("flag.png", Set("MARK", "flag.png:Flag"));
+        // A tag with no colon is all image, so it matches itself.
+        Assert.Equal("star.png", Set("MARK", "star.png"));
+
+        // The label alone isn't a value ToDoList would store, and the error lists the images.
+        var message = Rejects("MARK", "Flag").Message;
+        Assert.Contains("flag.png", message);
+        Assert.DoesNotContain("flag.png:Flag", message);
+    }
+
+    [Fact]
+    public void A_list_fields_data_byte_does_not_coerce_its_items()
+    {
+        // Encode short-circuits to the list path before any typed coercion, so the data byte only
+        // labels the field. ILIST is Fixed+Integer: membership decides, and the integer
+        // canonicalisation that would turn 007 into 7 never runs.
+        Assert.Equal("1", Set("ILIST", "1"));
+        Assert.Contains("007", Rejects("ILIST", "007").Message);
+
+        // DLIST is Fixed+Date but declares nothing, so it takes anything — including a non-date.
+        Assert.Equal("not a date", Set("DLIST", "not a date"));
+    }
 
     [Fact]
     public void A_multi_select_that_selects_nothing_clears_the_field()
@@ -377,6 +487,49 @@ public class CustomFieldCoercionTests
         Assert.Empty(task.CustomFields);
         Assert.Empty(XDocument.Parse(doc.ToXmlString()).Descendants("TASK")
             .Single(t => (int)t.Attribute("ID")! == task.Id).Elements("CUSTOMATTRIB"));
+    }
+
+    // ---- Properties that have to hold across every type ----------------------
+
+    [Theory]
+    [InlineData("WHEN", "2026-12-01T14:30")]
+    [InlineData("EFFORT", "90 mins")]
+    [InlineData("DONE", "true")]
+    [InlineData("COUNT", "42")]
+    [InlineData("RATIO", "3.5")]
+    [InlineData("FRAC", "3/4")]
+    [InlineData("STAGE", "alpha")]
+    [InlineData("TAGS", "red\nblue")]
+    public void A_stored_value_fed_straight_back_in_is_unchanged(string id, string natural)
+    {
+        // Read-modify-write has to be safe for a caller that reads a value and writes it back, so
+        // whatever is stored must encode to itself. It's also why EncodeDate takes a bare serial.
+        var stored = Set(id, natural)!;
+        Assert.Equal(stored, Set(id, stored));
+    }
+
+    [Fact]
+    public void Typed_values_are_parsed_and_formatted_culture_independently()
+    {
+        // Every InvariantCulture in the encoders is load-bearing for file compatibility. On a
+        // comma-decimal culture, dropping one would still pass every other test here while writing a
+        // .tdl ToDoList can't read, so this is the only test that would catch it.
+        var original = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("de-DE");
+
+            Assert.Equal("3.500000", Set("RATIO", "3.5"));
+            Assert.Equal("46357.000000", Set("WHEN", "2026-12-01"));
+            Assert.Equal("2.500000:D", Set("EFFORT", "2.5d"));
+            Assert.Equal("42", Set("COUNT", "42"));
+            // A comma decimal is refused rather than read as 35 or as 3.5.
+            RejectsAs("RATIO", "3,5", "Double");
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
     }
 
     [Fact]

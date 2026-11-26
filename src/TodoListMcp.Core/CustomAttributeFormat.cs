@@ -359,9 +359,11 @@ internal static class CustomAttributeFormat
         }
         else
         {
-            // Everything up to the first letter is the amount; the rest names the unit.
-            var split = 0;
-            while (split < text.Length && !char.IsLetter(text[split])) split++;
+            // The unit is the trailing run of letters, and everything before it is the amount.
+            // Splitting at the *first* letter instead would read the exponent in "1e3" as the unit,
+            // even though the colon form of the same value parses fine.
+            var split = text.Length;
+            while (split > 0 && char.IsLetter(text[split - 1])) split--;
             amountText = text[..split];
             unitText = text[split..];
         }
@@ -475,7 +477,7 @@ internal static class CustomAttributeFormat
             return checkMembership ? ResolveListItem(def, value) : value;
         }
 
-        var items = value.Split(ItemSep).Where(i => i.Length > 0);
+        var items = SplitItems(value);
         if (checkMembership)
         {
             items = items.Select(i => ResolveListItem(def, i));
@@ -486,27 +488,65 @@ internal static class CustomAttributeFormat
     }
 
     /// <summary>
-    /// Resolves one selection to the declared item it names, returned in the definition's own casing
-    /// and spacing so what's stored matches an item exactly. An exact match wins first, because
-    /// LISTDATA preserves whitespace and a declared item can carry its own — the string
-    /// <c>get_custom_fields</c> hands back must always be settable. Failing that, both sides are
-    /// trimmed, so the obvious spelling of a padded item still selects it.
+    /// Splits a multi-select value into its items. Newline alone is ToDoList's separator, so a value
+    /// joined with CRLF — the likely shape from a client on Windows — would otherwise leave a stray
+    /// carriage return on every item but the last, and ToDoList would show an item called "one\r".
+    /// Blank items are dropped, as they are on read and as <c>SetMulti</c> drops them for categories.
+    /// </summary>
+    private static IEnumerable<string> SplitItems(string value) =>
+        value.Split(ItemSep)
+            .Select(i => i.TrimEnd('\r'))
+            .Where(i => !string.IsNullOrWhiteSpace(i));
+
+    /// <summary>
+    /// Resolves one selection to the declared item it names, returned as a task stores it. An exact
+    /// match wins first, because LISTDATA preserves whitespace and a declared item can carry its own —
+    /// the string <c>get_custom_fields</c> hands back must always be settable. Failing that, both
+    /// sides are trimmed, so the obvious spelling of a padded item still selects it.
     /// </summary>
     private static string ResolveListItem(CustomAttributeDefinition def, string item)
     {
-        var match =
-            def.ListItems.FirstOrDefault(i => string.Equals(i, item, StringComparison.OrdinalIgnoreCase))
-            ?? def.ListItems.FirstOrDefault(
-                i => string.Equals(i.Trim(), item.Trim(), StringComparison.OrdinalIgnoreCase));
+        var declared = FindDeclaredItem(def, item, trim: false) ?? FindDeclaredItem(def, item, trim: true);
 
-        if (match is null)
+        if (declared is null)
         {
+            // Reported against "value": that's the parameter the caller actually supplied, and every
+            // other custom-field rejection names it. The allowed values are listed as they'd be
+            // stored, since those are what the caller can pass.
             throw new ArgumentException(
                 $"'{item.Trim()}' is not one of the values custom field '{def.Id}' allows "
-                + $"({string.Join(", ", def.ListItems)}).",
-                nameof(item));
+                + $"({string.Join(", ", def.ListItems.Select(i => StoredForm(def, i)))}).",
+                "value");
         }
-        return match;
+        return StoredForm(def, declared);
+    }
+
+    /// <summary>
+    /// Finds the declared item a selection names, accepting either the item as declared or the value a
+    /// task stores for it — those differ for an icon list. <paramref name="trim"/> runs the pass that
+    /// ignores surrounding whitespace on both sides.
+    /// </summary>
+    private static string? FindDeclaredItem(CustomAttributeDefinition def, string item, bool trim)
+    {
+        var given = trim ? item.Trim() : item;
+        return def.ListItems.FirstOrDefault(i =>
+        {
+            var declared = trim ? i.Trim() : i;
+            return string.Equals(declared, given, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(StoredForm(def, declared), given, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
+    /// <summary>
+    /// The value a task holds for a declared list item. They're the same thing except on an icon
+    /// list, whose items are declared as <c>image:label</c> while a task stores only the image —
+    /// ToDoList's own EncodeImageTag/DecodeImageTag pair, where a tag with no colon is all image.
+    /// </summary>
+    private static string StoredForm(CustomAttributeDefinition def, string declaredItem)
+    {
+        if (def.DataType != CustomFieldDataType.Icon) return declaredItem;
+        var colon = declaredItem.IndexOf(':');
+        return colon < 0 ? declaredItem : declaredItem[..colon];
     }
 
     /// <summary>
