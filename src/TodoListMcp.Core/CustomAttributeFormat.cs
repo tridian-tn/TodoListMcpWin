@@ -27,21 +27,28 @@ internal static class CustomAttributeFormat
     private const int ListMask = 0xff00;
 
     /// <summary>
-    /// How ToDoList formats a number inside a custom value: C's <c>"%lf"</c>, so six decimal places.
-    /// Deliberately not the eight places the task date attributes use — those go through a different
-    /// code path (<c>CTaskFile</c>'s own date writer rather than <c>TDCCADATA::Set</c>).
+    /// How many decimal places ToDoList writes inside a custom value: C's <c>"%lf"</c> gives six.
+    /// Deliberately not the eight the task date attributes use — those go through a different code
+    /// path (<c>CTaskFile</c>'s own date writer rather than <c>TDCCADATA::Set</c>).
     /// </summary>
-    private const string NumberFormat = "0.000000";
+    private const int NumberDecimals = 6;
+
+    /// <summary>Built from <see cref="NumberDecimals"/> so the two can't drift apart.</summary>
+    private static readonly string NumberFormat = "0." + new string('0', NumberDecimals);
 
     /// <summary>
     /// The date forms accepted for a date field. A closed set on purpose: a locale-ambiguous value
-    /// like 12/01/2026 would silently mean two different days depending on who read it.
+    /// like 12/01/2026 would silently mean two different days depending on who read it. The trailing
+    /// <c>K</c> takes an ISO 8601 zone — a <c>Z</c> or a <c>+01:00</c> offset — and converts to local
+    /// time, which is what <c>TodoTools.ParseDate</c> does for the task's own due and start dates, so
+    /// the same string works on either. It also matches a value with no zone at all, so these cover
+    /// the unzoned forms too.
     /// </summary>
     private static readonly string[] DateFormats =
     {
         "yyyy-MM-dd",
-        "yyyy-MM-ddTHH:mm", "yyyy-MM-ddTHH:mm:ss", "yyyy-MM-ddTHH:mm:ss.FFFFFFF",
-        "yyyy-MM-dd HH:mm", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm:ss.FFFFFFF",
+        "yyyy-MM-ddTHH:mmK", "yyyy-MM-ddTHH:mm:ssK", "yyyy-MM-ddTHH:mm:ss.FFFFFFFK",
+        "yyyy-MM-dd HH:mmK", "yyyy-MM-dd HH:mm:ssK", "yyyy-MM-dd HH:mm:ss.FFFFFFFK",
     };
 
     // Task value element/attribute names.
@@ -82,20 +89,55 @@ internal static class CustomAttributeFormat
         if (string.IsNullOrEmpty(id)) return null;
 
         var rawType = (int?)e.Attribute("TYPE") ?? 0;
+        var dataType = ToDataType(rawType);
         var listType = ToListType(rawType);
+
+        var declared = listType == CustomFieldListType.None
+            ? Array.Empty<string>()
+            : DecodeListData((string?)e.Attribute("LISTDATA"));
+
+        // An icon list declares each item as image:label, but a task stores only the image, so the
+        // images are the field's actual values — decoding here rather than at the point of use keeps
+        // the definition, a task's value and a write all speaking the same vocabulary.
+        var isIconList = dataType == CustomFieldDataType.Icon && declared.Count > 0;
+        var items = isIconList ? declared.Select(IconImage).ToList() : declared;
+        var labels = isIconList
+            ? (IReadOnlyList<string>)declared.Select(IconLabel).ToList()
+            : Array.Empty<string>();
+
         return new CustomAttributeDefinition
         {
             Id = id.ToUpperInvariant(),
             Label = Nullify((string?)e.Attribute("LABEL")),
             ColumnTitle = Nullify((string?)e.Attribute("COLTITLE")),
-            DataType = ToDataType(rawType),
+            DataType = dataType,
             ListType = listType,
             Enabled = ((int?)e.Attribute("ENABLED") ?? 0) != 0,
-            ListItems = listType == CustomFieldListType.None
-                ? Array.Empty<string>()
-                : DecodeListData((string?)e.Attribute("LISTDATA")),
+            ListItems = items,
+            ListItemLabels = labels,
             RawType = rawType,
         };
+    }
+
+    /// <summary>
+    /// The image part of an icon-list tag. ToDoList declares these as <c>image:label</c> and stores
+    /// the image alone on a task (its <c>EncodeImageTag</c>/<c>DecodeImageTag</c> pair, where a tag
+    /// with no colon is all image).
+    /// </summary>
+    private static string IconImage(string tag)
+    {
+        var colon = tag.IndexOf(':');
+        return colon < 0 ? tag : tag[..colon];
+    }
+
+    /// <summary>
+    /// The label part of an icon-list tag, or the image itself when the tag declares no label — so
+    /// there's always something displayable alongside the value.
+    /// </summary>
+    private static string IconLabel(string tag)
+    {
+        var colon = tag.IndexOf(':');
+        return colon < 0 ? tag : tag[(colon + 1)..];
     }
 
     private static CustomFieldDataType ToDataType(int type) => (type & DataMask) switch
@@ -126,7 +168,8 @@ internal static class CustomAttributeFormat
     /// <summary>
     /// Decodes a LISTDATA payload into its list items. The default items precede a '\t'; for auto lists
     /// the auto-collected items follow it. Both are surfaced (deduped, order preserved) so the caller
-    /// sees every value the field offers.
+    /// sees every value the field offers. Blank items are dropped — the write path drops a blank
+    /// selection, so a blank declared item could never be chosen and has no business being advertised.
     /// </summary>
     private static IReadOnlyList<string> DecodeListData(string? listData)
     {
@@ -140,7 +183,7 @@ internal static class CustomAttributeFormat
         {
             if (part.Length == 0) continue;
             foreach (var item in part.Split(ItemSep))
-                if (item.Length > 0) items.Add(item);
+                if (!string.IsNullOrWhiteSpace(item)) items.Add(item);
         }
         return items.Distinct(StringComparer.Ordinal).ToList();
     }
@@ -306,17 +349,14 @@ internal static class CustomAttributeFormat
             throw Invalid(def, value, "a date as yyyy-MM-dd or yyyy-MM-ddTHH:mm");
         }
 
-        if (!IsDateSerial(serial))
+        // Check the serial as it will be stored, not as it was parsed: rounding to six decimals can
+        // take one just above zero down to zero (which the reader takes as no date at all), or one
+        // just under the top of the range past it.
+        if (!IsDateSerial(Math.Round(serial, NumberDecimals, MidpointRounding.AwayFromZero)))
         {
             throw Invalid(def, value, expected);
         }
-
-        var formatted = FormatNumber(serial);
-        if (!IsDateSerial(double.Parse(formatted, NumberStyles.Float, CultureInfo.InvariantCulture)))
-        {
-            throw Invalid(def, value, expected);
-        }
-        return formatted;
+        return FormatNumber(serial);
     }
 
     /// <summary>
@@ -406,7 +446,11 @@ internal static class CustomAttributeFormat
             return i.ToString(CultureInfo.InvariantCulture);
         }
 
-        var digits = value.Trim().TrimStart('+', '-');
+        // One leading sign only: stripping every sign character would report a malformed "--5" as
+        // being out of range rather than as not a whole number.
+        var digits = value.Trim();
+        if (digits.Length > 0 && (digits[0] == '+' || digits[0] == '-')) digits = digits[1..];
+
         if (digits.Length > 0 && digits.All(char.IsAsciiDigit))
         {
             throw Invalid(def, value, $"a whole number between {int.MinValue} and {int.MaxValue}");
@@ -457,6 +501,11 @@ internal static class CustomAttributeFormat
     /// </summary>
     private static string? EncodeListSelection(CustomAttributeDefinition def, string value)
     {
+        // Newline alone is ToDoList's separator, so fold CRLF down to it before anything else: a
+        // stray carriage return would otherwise ride into a stored item and show up in ToDoList as
+        // an item called "one\r".
+        value = value.Replace("\r\n", "\n");
+
         // Callers are told to newline-join items for a multi-select field, so doing it to a
         // single-select one is an easy mistake and worth naming rather than reporting the whole
         // string as an unknown value.
@@ -474,7 +523,9 @@ internal static class CustomAttributeFormat
 
         if (!def.IsMultiValued)
         {
-            return checkMembership ? ResolveListItem(def, value) : value;
+            // TrimEnd for the same reason as the CRLF fold above: a lone trailing carriage return is
+            // never part of the value, and the multi-select path strips it too.
+            return checkMembership ? ResolveListItem(def, value) : value.TrimEnd('\r');
         }
 
         var items = SplitItems(value);
@@ -488,10 +539,10 @@ internal static class CustomAttributeFormat
     }
 
     /// <summary>
-    /// Splits a multi-select value into its items. Newline alone is ToDoList's separator, so a value
-    /// joined with CRLF — the likely shape from a client on Windows — would otherwise leave a stray
-    /// carriage return on every item but the last, and ToDoList would show an item called "one\r".
-    /// Blank items are dropped, as they are on read and as <c>SetMulti</c> drops them for categories.
+    /// Splits a multi-select value into its items, dropping the blank ones as the read path and
+    /// <c>SetMulti</c> both do. Unlike <c>SetMulti</c> it deliberately doesn't trim each item: a
+    /// declared list item can carry its own surrounding whitespace, and trimming here would stop that
+    /// item being selectable by its exact spelling.
     /// </summary>
     private static IEnumerable<string> SplitItems(string value) =>
         value.Split(ItemSep)
@@ -499,55 +550,33 @@ internal static class CustomAttributeFormat
             .Where(i => !string.IsNullOrWhiteSpace(i));
 
     /// <summary>
-    /// Resolves one selection to the declared item it names, returned as a task stores it. An exact
-    /// match wins first, because LISTDATA preserves whitespace and a declared item can carry its own —
-    /// the string <c>get_custom_fields</c> hands back must always be settable. Failing that, both
-    /// sides are trimmed, so the obvious spelling of a padded item still selects it.
+    /// Resolves one selection to the declared item it names. An exact match wins first, because
+    /// LISTDATA preserves whitespace and a declared item can carry its own — the string
+    /// <c>get_custom_fields</c> hands back must always be settable. Failing that, both sides are
+    /// trimmed, so the obvious spelling of a padded item still selects it.
     /// </summary>
     private static string ResolveListItem(CustomAttributeDefinition def, string item)
     {
-        var declared = FindDeclaredItem(def, item, trim: false) ?? FindDeclaredItem(def, item, trim: true);
+        // An icon list's items are decoded to their image when the definition is read, so a caller
+        // who copied a raw image:label tag out of the .tdl resolves to the same item.
+        var given = def.DataType == CustomFieldDataType.Icon ? IconImage(item) : item;
 
-        if (declared is null)
-        {
-            // Reported against "value": that's the parameter the caller actually supplied, and every
-            // other custom-field rejection names it. The allowed values are listed as they'd be
-            // stored, since those are what the caller can pass.
-            throw new ArgumentException(
-                $"'{item.Trim()}' is not one of the values custom field '{def.Id}' allows "
-                + $"({string.Join(", ", def.ListItems.Select(i => StoredForm(def, i)))}).",
-                "value");
-        }
-        return StoredForm(def, declared);
+        var declared =
+            def.ListItems.FirstOrDefault(i => string.Equals(i, given, StringComparison.OrdinalIgnoreCase))
+            ?? def.ListItems.FirstOrDefault(
+                i => string.Equals(i.Trim(), given.Trim(), StringComparison.OrdinalIgnoreCase));
+
+        return declared ?? throw NotAllowed(def, given);
     }
 
     /// <summary>
-    /// Finds the declared item a selection names, accepting either the item as declared or the value a
-    /// task stores for it — those differ for an icon list. <paramref name="trim"/> runs the pass that
-    /// ignores surrounding whitespace on both sides.
+    /// The rejection for a selection that names no declared item. Separate so the reported parameter
+    /// name is a real <c>nameof</c> rather than a literal that could drift from the public parameter.
     /// </summary>
-    private static string? FindDeclaredItem(CustomAttributeDefinition def, string item, bool trim)
-    {
-        var given = trim ? item.Trim() : item;
-        return def.ListItems.FirstOrDefault(i =>
-        {
-            var declared = trim ? i.Trim() : i;
-            return string.Equals(declared, given, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(StoredForm(def, declared), given, StringComparison.OrdinalIgnoreCase);
-        });
-    }
-
-    /// <summary>
-    /// The value a task holds for a declared list item. They're the same thing except on an icon
-    /// list, whose items are declared as <c>image:label</c> while a task stores only the image —
-    /// ToDoList's own EncodeImageTag/DecodeImageTag pair, where a tag with no colon is all image.
-    /// </summary>
-    private static string StoredForm(CustomAttributeDefinition def, string declaredItem)
-    {
-        if (def.DataType != CustomFieldDataType.Icon) return declaredItem;
-        var colon = declaredItem.IndexOf(':');
-        return colon < 0 ? declaredItem : declaredItem[..colon];
-    }
+    private static ArgumentException NotAllowed(CustomAttributeDefinition def, string value) =>
+        new($"'{value.Trim()}' is not one of the values custom field '{def.Id}' allows "
+            + $"({string.Join(", ", def.ListItems)}).",
+            nameof(value));
 
     /// <summary>
     /// Parses a number for a custom value, requiring a finite result. The finite check matters:

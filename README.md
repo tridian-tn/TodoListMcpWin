@@ -322,6 +322,9 @@ for it (a `<CUSTOMATTRIB>` element).
 - **Discover them** — `get_custom_fields` returns the list's definitions: `Id` (the key, e.g. `MR`),
   `Label`, `DataType` (string/date/integer/double/bool/icon/fileLink/timePeriod/fraction/calculation),
   `ListType` (none/auto/fixed/autoMulti/fixedMulti), `IsMultiValued`, and `ListItems` for list fields.
+  `ListItems` holds the values a task actually stores, so they're what you pass back to set the field.
+  An **icon** list is the one place those differ from what's on disk: ToDoList declares its items as
+  `image:label`, so `ListItems` carries the image names and `ListItemLabels` the matching labels.
 - **Read values** — each task's values appear on `CustomFields` — a list with one entry per field,
   each carrying its `Id`, the raw `Value`, the split `Values` (multi-select fields), and ToDoList's
   `Display` string when present.
@@ -336,7 +339,7 @@ for it (a `<CUSTOMATTRIB>` element).
 
   | Data type | Pass | Stored as |
   | --- | --- | --- |
-  | `date` | `2026-12-01`, `2026-12-01T14:30` (or an OLE serial, which round-trips unchanged) | an OLE-automation serial, e.g. `46357.000000` |
+  | `date` | `2026-12-01`, `2026-12-01T14:30`, a zoned `2026-12-01T14:30:00Z` or `+01:00` (converted to local time, as `dueDate` is), or an OLE serial, which round-trips unchanged | an OLE-automation serial, e.g. `46357.000000` |
   | `timePeriod` | `3h`, `90 mins`, `2.5:D`, or a bare number (hours) | `amount:unit`, e.g. `3.000000:H` |
   | `bool` | `true`/`false`, `yes`/`no`, `1`/`0` | `+` for true; false **clears** the field (ToDoList reads an absent value as false) |
   | `integer` | `42` | `42` |

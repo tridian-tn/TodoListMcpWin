@@ -457,9 +457,10 @@ public sealed class TodoListDocument
 
         // Check and encode custom-field assignments before allocating an ID or building anything, so a
         // rejected field makes the whole add a no-op (no burned ID, document untouched). Empty values
-        // are dropped — they have nothing to set on a new task.
-        var customToSet = PrepareCustomFields(
-            req.CustomFields.Where(f => !string.IsNullOrEmpty(f.Value)).ToList());
+        // go through the same check rather than being filtered out first: they have nothing to clear
+        // on a new task, but an unknown or calculation field ID has to be refused here exactly as it
+        // would be on an update.
+        var customToSet = PrepareCustomFields(req.CustomFields);
 
         var now = _clock.Now;
         var e = new XElement("TASK",

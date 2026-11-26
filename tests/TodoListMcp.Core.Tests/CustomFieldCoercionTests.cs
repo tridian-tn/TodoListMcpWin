@@ -20,7 +20,7 @@ public class CustomFieldCoercionTests
     private const string Xml =
         """
         <?xml version="1.0" encoding="utf-16"?>
-        <TODOLIST PROJECTNAME="P" NEXTUNIQUEID="2"><CUSTOMATTRIBDEF ID="TEXT" TYPE="0" ENABLED="1"/><CUSTOMATTRIBDEF ID="WHEN" TYPE="1" ENABLED="1"/><CUSTOMATTRIBDEF ID="COUNT" TYPE="2" ENABLED="1"/><CUSTOMATTRIBDEF ID="RATIO" TYPE="3" ENABLED="1"/><CUSTOMATTRIBDEF ID="DONE" TYPE="4" ENABLED="1"/><CUSTOMATTRIBDEF ID="BADGE" TYPE="5" ENABLED="1"/><CUSTOMATTRIBDEF ID="LINK" TYPE="6" ENABLED="1"/><CUSTOMATTRIBDEF ID="EFFORT" TYPE="7" ENABLED="1"/><CUSTOMATTRIBDEF ID="FRAC" TYPE="8" ENABLED="1"/><CUSTOMATTRIBDEF ID="NEWTYPE" TYPE="12" ENABLED="1"/><CUSTOMATTRIBDEF ID="STAGE" TYPE="512" ENABLED="1" LISTDATA="Alpha&#10;Beta"/><CUSTOMATTRIBDEF ID="TAGS" TYPE="1024" ENABLED="1" LISTDATA="red&#10;green&#10;blue"/><CUSTOMATTRIBDEF ID="FREE" TYPE="256" ENABLED="1" LISTDATA="one&#10;two"/><CUSTOMATTRIBDEF ID="LOOSE" TYPE="768" ENABLED="1" LISTDATA="one&#10;two"/><CUSTOMATTRIBDEF ID="OPEN" TYPE="512" ENABLED="1"/><CUSTOMATTRIBDEF ID="OPENTAGS" TYPE="1024" ENABLED="1"/><CUSTOMATTRIBDEF ID="PADDED" TYPE="512" ENABLED="1" LISTDATA=" Alpha &#10;Beta"/><CUSTOMATTRIBDEF ID="ILIST" TYPE="514" ENABLED="1" LISTDATA="1&#10;2"/><CUSTOMATTRIBDEF ID="DLIST" TYPE="513" ENABLED="1"/><CUSTOMATTRIBDEF ID="MARK" TYPE="517" ENABLED="1" LISTDATA="flag.png:Flag&#10;star.png"/><TASK ID="1" TITLE="T1" POS="0"/></TODOLIST>
+        <TODOLIST PROJECTNAME="P" NEXTUNIQUEID="2"><CUSTOMATTRIBDEF ID="TEXT" TYPE="0" ENABLED="1"/><CUSTOMATTRIBDEF ID="WHEN" TYPE="1" ENABLED="1"/><CUSTOMATTRIBDEF ID="COUNT" TYPE="2" ENABLED="1"/><CUSTOMATTRIBDEF ID="RATIO" TYPE="3" ENABLED="1"/><CUSTOMATTRIBDEF ID="DONE" TYPE="4" ENABLED="1"/><CUSTOMATTRIBDEF ID="BADGE" TYPE="5" ENABLED="1"/><CUSTOMATTRIBDEF ID="LINK" TYPE="6" ENABLED="1"/><CUSTOMATTRIBDEF ID="EFFORT" TYPE="7" ENABLED="1"/><CUSTOMATTRIBDEF ID="FRAC" TYPE="8" ENABLED="1"/><CUSTOMATTRIBDEF ID="NEWTYPE" TYPE="12" ENABLED="1"/><CUSTOMATTRIBDEF ID="STAGE" TYPE="512" ENABLED="1" LISTDATA="Alpha&#10;Beta"/><CUSTOMATTRIBDEF ID="TAGS" TYPE="1024" ENABLED="1" LISTDATA="red&#10;green&#10;blue"/><CUSTOMATTRIBDEF ID="FREE" TYPE="256" ENABLED="1" LISTDATA="one&#10;two"/><CUSTOMATTRIBDEF ID="LOOSE" TYPE="768" ENABLED="1" LISTDATA="one&#10;two"/><CUSTOMATTRIBDEF ID="OPEN" TYPE="512" ENABLED="1"/><CUSTOMATTRIBDEF ID="OPENTAGS" TYPE="1024" ENABLED="1"/><CUSTOMATTRIBDEF ID="PADDED" TYPE="512" ENABLED="1" LISTDATA=" Alpha &#10;Beta"/><CUSTOMATTRIBDEF ID="ILIST" TYPE="514" ENABLED="1" LISTDATA="1&#10;2"/><CUSTOMATTRIBDEF ID="DLIST" TYPE="513" ENABLED="1"/><CUSTOMATTRIBDEF ID="MARK" TYPE="517" ENABLED="1" LISTDATA="flag.png:Flag&#10;star.png"/><CUSTOMATTRIBDEF ID="TOTAL" TYPE="9" ENABLED="1"/><TASK ID="1" TITLE="T1" POS="0"/></TODOLIST>
         """;
 
     private static TodoListDocument Doc() => TodoListDocument.Parse(Xml, TestData.Clock);
@@ -28,19 +28,38 @@ public class CustomFieldCoercionTests
     private static XElement Task(TodoListDocument doc) =>
         XDocument.Parse(doc.ToXmlString()).Descendants("TASK").Single();
 
-    /// <summary>Sets one field on task 1 and returns the VALUE as it was written, or null if no element exists.</summary>
+    /// <summary>
+    /// Sets one field on task 1 and returns the VALUE as it was written. Null means the field has no
+    /// element OR an element with no VALUE — use <see cref="AssertClears"/> when the claim is that the
+    /// field was removed, since a null here doesn't tell those two apart.
+    /// </summary>
     private static string? Set(string id, string? value)
+    {
+        var e = Written(id, value)
+            .Elements("CUSTOMATTRIB")
+            .FirstOrDefault(x => (string?)x.Attribute("ID") == id.ToUpperInvariant());
+        return (string?)e?.Attribute("VALUE");
+    }
+
+    /// <summary>Sets one field on task 1 and returns the task element as it was serialised.</summary>
+    private static XElement Written(string id, string? value)
     {
         var doc = Doc();
         doc.UpdateTask(1, new UpdateTaskRequest
         {
             CustomFields = new[] { new CustomFieldSet { Id = id, Value = value } },
         });
-
-        var e = Task(doc).Elements("CUSTOMATTRIB")
-            .FirstOrDefault(x => (string?)x.Attribute("ID") == id.ToUpperInvariant());
-        return (string?)e?.Attribute("VALUE");
+        return Task(doc);
     }
+
+    /// <summary>
+    /// Asserts the field ends up with no element at all — not an element carrying an empty VALUE,
+    /// which ToDoList's reader skips and which would therefore look identical through <see cref="Set"/>.
+    /// </summary>
+    private static void AssertClears(string id, string? value) =>
+        Assert.DoesNotContain(
+            Written(id, value).Elements("CUSTOMATTRIB"),
+            e => string.Equals((string?)e.Attribute("ID"), id, StringComparison.OrdinalIgnoreCase));
 
     private static ArgumentException Rejects(string id, string value) =>
         Assert.Throws<ArgumentException>(() => Doc().UpdateTask(1, new UpdateTaskRequest
@@ -109,6 +128,22 @@ public class CustomFieldCoercionTests
     [InlineData("46357.6041666667", "46357.604167")]    // a finer serial is rounded, not refused
     public void Every_accepted_date_form_is_covered(string given, string stored) =>
         Assert.Equal(stored, Set("WHEN", given));
+
+    [Fact]
+    public void A_zoned_iso_date_is_accepted_and_converted_like_a_task_due_date()
+    {
+        // A client that serialises dates with a zone is the common case, and the same string already
+        // works for dueDate (TodoTools.ParseDate). The serial depends on the machine's time zone, so
+        // the assertion is that the same instant written two ways lands on the same serial, and that
+        // it's a real stored value rather than a refusal.
+        var utc = Set("WHEN", "2026-12-01T14:30:00Z")!;
+        var offset = Set("WHEN", "2026-12-01T15:30:00+01:00")!;
+
+        Assert.Equal(utc, offset);
+        Assert.True(double.Parse(utc, CultureInfo.InvariantCulture) > 0);
+        // A different instant must not collapse onto the same serial.
+        Assert.NotEqual(utc, Set("WHEN", "2026-12-01T16:30:00+01:00"));
+    }
 
     [Fact]
     public void A_written_date_reads_back_as_the_same_instant()
@@ -199,7 +234,7 @@ public class CustomFieldCoercionTests
     [InlineData("0")]
     [InlineData("off")]
     public void False_stores_nothing_because_an_absent_value_reads_as_false(string given) =>
-        Assert.Null(Set("DONE", given));
+        AssertClears("DONE", given);
 
     [Fact]
     public void False_removes_a_value_that_was_already_true()
@@ -254,6 +289,15 @@ public class CustomFieldCoercionTests
         Assert.Contains("2147483647", Rejects("COUNT", "2147483648").Message);
         Assert.Contains("2147483647", Rejects("COUNT", "-2147483649").Message);
     }
+
+    [Theory]
+    [InlineData("--5")]
+    [InlineData("+-5")]
+    [InlineData("5-")]
+    public void A_malformed_number_is_not_reported_as_out_of_range(string given) =>
+        // Only one leading sign is stripped before the digits check, so these are refused for not
+        // being whole numbers rather than for being too large.
+        Assert.DoesNotContain("2147483647", Rejects("COUNT", given).Message);
 
     [Theory]
     [InlineData("3.5", "3.500000")]
@@ -322,11 +366,20 @@ public class CustomFieldCoercionTests
     [Fact]
     public void A_value_outside_a_fixed_list_is_rejected()
     {
-        var message = Rejects("STAGE", "Gamma").Message;
-        Assert.Contains("Gamma", message);
-        Assert.Contains("Alpha", message);   // the message names what the field does allow
-        Assert.Contains("Beta", message);
+        var rejection = Rejects("STAGE", "Gamma");
+        Assert.Contains("Gamma", rejection.Message);
+        Assert.Contains("Alpha", rejection.Message);   // the message names what the field does allow
+        Assert.Contains("Beta", rejection.Message);
+        // Every custom-field rejection blames the supplied value, not an internal parameter name.
+        Assert.Equal("value", rejection.ParamName);
     }
+
+    [Theory]
+    [InlineData("WHEN", "not a date")]
+    [InlineData("COUNT", "ten")]
+    [InlineData("EFFORT", "soon")]
+    public void A_type_mismatch_also_blames_the_supplied_value(string id, string given) =>
+        Assert.Equal("value", Rejects(id, given).ParamName);
 
     [Fact]
     public void A_fixed_multi_select_is_checked_item_by_item()
@@ -361,8 +414,10 @@ public class CustomFieldCoercionTests
         Assert.Contains("single value", Rejects("FREE", "one\ntwo").Message);
 
     [Theory]
-    [InlineData("TAGS", "red\r\nblue", "red\nblue")]      // membership-checked path
-    [InlineData("LOOSE", "one\r\ntwo", "one\ntwo")]       // unchecked path
+    [InlineData("TAGS", "red\r\nblue", "red\nblue")]      // membership-checked multi
+    [InlineData("LOOSE", "one\r\ntwo", "one\ntwo")]       // unchecked multi
+    [InlineData("FREE", "one\r", "one")]                  // unchecked single-select
+    [InlineData("OPEN", "whatever\r", "whatever")]        // fixed single-select, nothing declared
     public void Crlf_joined_items_split_like_newline_joined_ones(string id, string given, string stored) =>
         // A client on Windows is the likeliest source of CRLF, and a stray carriage return would
         // leave ToDoList showing an item called "one\r".
@@ -375,6 +430,19 @@ public class CustomFieldCoercionTests
         // The read path and SetMulti both drop blank items; the checked write path used to send a
         // whitespace-only one through membership and report the empty string as an unknown value.
         Assert.Equal(stored, Set(id, given));
+
+    [Fact]
+    public void An_icon_lists_definition_surfaces_images_with_their_labels()
+    {
+        // The tag is decoded when the definition is read, so get_custom_fields advertises exactly the
+        // values a task stores, with the display labels alongside rather than glued on.
+        var def = Doc().GetCustomAttributeDefinitions().Single(d => d.Id == "MARK");
+        Assert.Equal(new[] { "flag.png", "star.png" }, def.ListItems);
+        Assert.Equal(new[] { "Flag", "star.png" }, def.ListItemLabels);   // no label declared → the image
+
+        // Every other list type is its own label, so nothing is duplicated into that field.
+        Assert.Empty(Doc().GetCustomAttributeDefinitions().Single(d => d.Id == "TAGS").ListItemLabels);
+    }
 
     [Fact]
     public void An_icon_lists_value_is_the_image_not_the_declared_tag()
@@ -448,7 +516,7 @@ public class CustomFieldCoercionTests
         // Normalising is separate from checking membership: these fields accept any item, but the
         // stored value still drops empties and collapses duplicates like every other multi-value field.
         Assert.Equal("one\ntwo", Set(id, "one\n\ntwo\none"));
-        Assert.Null(Set(id, "\n\n"));
+        AssertClears(id, "\n\n");
     }
 
     // ---- Add, and refusal being atomic ---------------------------------------
@@ -489,6 +557,72 @@ public class CustomFieldCoercionTests
             .Single(t => (int)t.Attribute("ID")! == task.Id).Elements("CUSTOMATTRIB"));
     }
 
+    [Fact]
+    public void A_blank_declared_item_is_not_advertised()
+    {
+        // The write path drops a blank selection, so a blank declared item could never be chosen.
+        // Surfacing it would offer a value that can't be set.
+        var def = TodoListDocument.Parse(
+            """
+            <?xml version="1.0" encoding="utf-16"?>
+            <TODOLIST NEXTUNIQUEID="2"><CUSTOMATTRIBDEF ID="F" TYPE="1024" ENABLED="1" LISTDATA="red&#10; &#10;blue"/><TASK ID="1" TITLE="t"/></TODOLIST>
+            """,
+            TestData.Clock).GetCustomAttributeDefinitions().Single();
+
+        Assert.Equal(new[] { "red", "blue" }, def.ListItems);
+    }
+
+    // ---- Writing over an existing value --------------------------------------
+
+    [Fact]
+    public void A_typed_value_replaces_an_existing_one_in_place()
+    {
+        // Every other test here writes a new element. This is the other branch of Apply: the element
+        // keeps its position and the attributes this server doesn't own, every derived mirror goes, and
+        // the new value is encoded the same way.
+        var doc = TodoListDocument.Parse(
+            """
+            <?xml version="1.0" encoding="utf-16"?>
+            <TODOLIST NEXTUNIQUEID="2"><CUSTOMATTRIBDEF ID="WHEN" TYPE="1" ENABLED="1"/><TASK ID="1" TITLE="T"><CUSTOMATTRIB ID="WHEN" VALUE="46000.000000" VALUEDISPLAY="old" CALC="5" CALCDISPLAY="five" NOTE="keep"/><TAG>x</TAG></TASK></TODOLIST>
+            """,
+            TestData.Clock);
+
+        doc.UpdateTask(1, new UpdateTaskRequest
+        {
+            CustomFields = new[] { new CustomFieldSet { Id = "WHEN", Value = "2026-12-01" } },
+        });
+
+        var task = XDocument.Parse(doc.ToXmlString()).Descendants("TASK").Single();
+        var when = Assert.Single(task.Elements("CUSTOMATTRIB"));
+        Assert.Equal("46357.000000", (string?)when.Attribute("VALUE"));
+        Assert.Equal("keep", (string?)when.Attribute("NOTE"));          // unowned attribute survives
+        Assert.Null(when.Attribute("VALUEDISPLAY"));                     // all three mirrors dropped
+        Assert.Null(when.Attribute("CALC"));
+        Assert.Null(when.Attribute("CALCDISPLAY"));
+        Assert.Equal("CUSTOMATTRIB", ((XElement)task.FirstNode!).Name.LocalName);   // still first child
+    }
+
+    [Fact]
+    public void Duplicate_elements_for_one_field_collapse_to_a_single_value()
+    {
+        // ToDoList keeps one element per field. A file carrying two (the IDs differing only in case,
+        // which the lookup matches) must come out with one, and clearing must remove both.
+        const string xml =
+            """
+            <?xml version="1.0" encoding="utf-16"?>
+            <TODOLIST NEXTUNIQUEID="2"><CUSTOMATTRIBDEF ID="DONE" TYPE="4" ENABLED="1"/><TASK ID="1" TITLE="T"><CUSTOMATTRIB ID="DONE" VALUE="+"/><CUSTOMATTRIB ID="done" VALUE="+"/></TASK></TODOLIST>
+            """;
+
+        var set = TodoListDocument.Parse(xml, TestData.Clock);
+        set.UpdateTask(1, new UpdateTaskRequest { CustomFields = new[] { new CustomFieldSet { Id = "DONE", Value = "true" } } });
+        var kept = Assert.Single(XDocument.Parse(set.ToXmlString()).Descendants("TASK").Single().Elements("CUSTOMATTRIB"));
+        Assert.Equal("+", (string?)kept.Attribute("VALUE"));
+
+        var cleared = TodoListDocument.Parse(xml, TestData.Clock);
+        cleared.UpdateTask(1, new UpdateTaskRequest { CustomFields = new[] { new CustomFieldSet { Id = "DONE", Value = "false" } } });
+        Assert.Empty(XDocument.Parse(cleared.ToXmlString()).Descendants("TASK").Single().Elements("CUSTOMATTRIB"));
+    }
+
     // ---- Properties that have to hold across every type ----------------------
 
     [Theory]
@@ -500,6 +634,9 @@ public class CustomFieldCoercionTests
     [InlineData("FRAC", "3/4")]
     [InlineData("STAGE", "alpha")]
     [InlineData("TAGS", "red\nblue")]
+    [InlineData("MARK", "flag.png")]        // icon list: stored form differs from the declared tag
+    [InlineData("MARK", "flag.png:Flag")]
+    [InlineData("LOOSE", "one\ntwo")]       // unchecked multi-select: normalised on the way back in
     public void A_stored_value_fed_straight_back_in_is_unchanged(string id, string natural)
     {
         // Read-modify-write has to be safe for a caller that reads a value and writes it back, so
@@ -549,6 +686,24 @@ public class CustomFieldCoercionTests
         var t = doc.GetTask(1)!;
         Assert.Equal("T1", t.Title);        // the title change rolled back with it
         Assert.Empty(t.CustomFields);       // and the valid assignment was not half-applied
+        Assert.False(doc.IsDirty);
+    }
+
+    [Theory]
+    [InlineData("NOPE")]    // no such field
+    [InlineData("TOTAL")]   // a calculation, which can never be set
+    public void Add_checks_a_field_id_even_when_its_value_is_empty(string id)
+    {
+        // An empty value has nothing to clear on a new task, but the ID still has to be real — add
+        // used to filter empties out before validating, so a typo passed on add and threw on update.
+        var doc = Doc();
+        Assert.Throws<ArgumentException>(() => doc.AddTask(new AddTaskRequest
+        {
+            Title = "New",
+            CustomFields = new[] { new CustomFieldSet { Id = id, Value = "" } },
+        }));
+
+        Assert.Single(doc.GetTasks());
         Assert.False(doc.IsDirty);
     }
 
