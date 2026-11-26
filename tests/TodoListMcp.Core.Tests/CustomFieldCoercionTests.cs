@@ -12,12 +12,15 @@ namespace TodoListMcp.Core.Tests;
 /// </summary>
 public class CustomFieldCoercionTests
 {
-    // One field of every data type, plus a fixed single-select, a fixed multi-select, an auto list, a
-    // fixed list with nothing declared yet, and a type code no ToDoList version uses (NEWTYPE).
+    // One field of every data type, plus every list shape that behaves differently on write: a fixed
+    // single-select (STAGE), a fixed multi-select (TAGS), an auto single-select (FREE), an auto
+    // multi-select (LOOSE), a fixed single-select with nothing declared (OPEN), a fixed multi-select
+    // with nothing declared (OPENTAGS), a fixed list whose declared item carries spaces (PADDED), and
+    // a type code no ToDoList version uses (NEWTYPE).
     private const string Xml =
         """
         <?xml version="1.0" encoding="utf-16"?>
-        <TODOLIST PROJECTNAME="P" NEXTUNIQUEID="2"><CUSTOMATTRIBDEF ID="TEXT" TYPE="0" ENABLED="1"/><CUSTOMATTRIBDEF ID="WHEN" TYPE="1" ENABLED="1"/><CUSTOMATTRIBDEF ID="COUNT" TYPE="2" ENABLED="1"/><CUSTOMATTRIBDEF ID="RATIO" TYPE="3" ENABLED="1"/><CUSTOMATTRIBDEF ID="DONE" TYPE="4" ENABLED="1"/><CUSTOMATTRIBDEF ID="BADGE" TYPE="5" ENABLED="1"/><CUSTOMATTRIBDEF ID="LINK" TYPE="6" ENABLED="1"/><CUSTOMATTRIBDEF ID="EFFORT" TYPE="7" ENABLED="1"/><CUSTOMATTRIBDEF ID="FRAC" TYPE="8" ENABLED="1"/><CUSTOMATTRIBDEF ID="NEWTYPE" TYPE="12" ENABLED="1"/><CUSTOMATTRIBDEF ID="STAGE" TYPE="512" ENABLED="1" LISTDATA="Alpha&#10;Beta"/><CUSTOMATTRIBDEF ID="TAGS" TYPE="1024" ENABLED="1" LISTDATA="red&#10;green&#10;blue"/><CUSTOMATTRIBDEF ID="FREE" TYPE="256" ENABLED="1" LISTDATA="one&#10;two"/><CUSTOMATTRIBDEF ID="OPEN" TYPE="512" ENABLED="1"/><TASK ID="1" TITLE="T1" POS="0"/></TODOLIST>
+        <TODOLIST PROJECTNAME="P" NEXTUNIQUEID="2"><CUSTOMATTRIBDEF ID="TEXT" TYPE="0" ENABLED="1"/><CUSTOMATTRIBDEF ID="WHEN" TYPE="1" ENABLED="1"/><CUSTOMATTRIBDEF ID="COUNT" TYPE="2" ENABLED="1"/><CUSTOMATTRIBDEF ID="RATIO" TYPE="3" ENABLED="1"/><CUSTOMATTRIBDEF ID="DONE" TYPE="4" ENABLED="1"/><CUSTOMATTRIBDEF ID="BADGE" TYPE="5" ENABLED="1"/><CUSTOMATTRIBDEF ID="LINK" TYPE="6" ENABLED="1"/><CUSTOMATTRIBDEF ID="EFFORT" TYPE="7" ENABLED="1"/><CUSTOMATTRIBDEF ID="FRAC" TYPE="8" ENABLED="1"/><CUSTOMATTRIBDEF ID="NEWTYPE" TYPE="12" ENABLED="1"/><CUSTOMATTRIBDEF ID="STAGE" TYPE="512" ENABLED="1" LISTDATA="Alpha&#10;Beta"/><CUSTOMATTRIBDEF ID="TAGS" TYPE="1024" ENABLED="1" LISTDATA="red&#10;green&#10;blue"/><CUSTOMATTRIBDEF ID="FREE" TYPE="256" ENABLED="1" LISTDATA="one&#10;two"/><CUSTOMATTRIBDEF ID="LOOSE" TYPE="768" ENABLED="1" LISTDATA="one&#10;two"/><CUSTOMATTRIBDEF ID="OPEN" TYPE="512" ENABLED="1"/><CUSTOMATTRIBDEF ID="OPENTAGS" TYPE="1024" ENABLED="1"/><CUSTOMATTRIBDEF ID="PADDED" TYPE="512" ENABLED="1" LISTDATA=" Alpha &#10;Beta"/><TASK ID="1" TITLE="T1" POS="0"/></TODOLIST>
         """;
 
     private static TodoListDocument Doc() => TodoListDocument.Parse(Xml, TestData.Clock);
@@ -67,8 +70,17 @@ public class CustomFieldCoercionTests
     [InlineData("99999999")]     // past the OLE range: refused rather than stored unreadable
     [InlineData("NaN")]
     [InlineData("Infinity")]
+    [InlineData("1899-12-30")]   // the epoch itself converts to serial 0, which reads as no date
+    [InlineData("0099-12-31")]   // ToOADate throws below year 100; must surface as a field error
+    [InlineData("0100-01-01")]   // in the OLE range but negative, same as a negative serial
+    [InlineData("0.0000001")]    // positive, but rounds to 0.000000 once stored
     public void A_value_that_isnt_an_iso_date_is_rejected(string given) =>
         Assert.Contains("WHEN", Rejects("WHEN", given).Message);
+
+    [Fact]
+    public void The_day_after_the_epoch_is_the_first_storable_date() =>
+        // 1899-12-31 is serial 1 — the boundary the rejection cases above sit just outside.
+        Assert.Equal("1.000000", Set("WHEN", "1899-12-31"));
 
     [Fact]
     public void A_written_date_reads_back_as_the_same_instant()
@@ -307,6 +319,27 @@ public class CustomFieldCoercionTests
     [Fact]
     public void A_fixed_list_with_no_declared_values_accepts_anything() =>
         Assert.Equal("whatever", Set("OPEN", "whatever"));
+
+    [Fact]
+    public void A_declared_item_carrying_spaces_stays_selectable()
+    {
+        // LISTDATA preserves whitespace, so " Alpha " is a distinct declared value. The exact string
+        // get_custom_fields hands back has to be settable, and an exact match beats a trimmed one.
+        Assert.Equal(" Alpha ", Set("PADDED", " Alpha "));
+        // A trimmed spelling still resolves, as a convenience, to the declared item.
+        Assert.Equal(" Alpha ", Set("PADDED", "Alpha"));
+    }
+
+    [Theory]
+    [InlineData("LOOSE")]      // auto multi-select: no closed set to check against
+    [InlineData("OPENTAGS")]   // fixed multi-select that declares nothing yet
+    public void An_unchecked_multi_select_is_still_normalised(string id)
+    {
+        // Normalising is separate from checking membership: these fields accept any item, but the
+        // stored value still drops empties and collapses duplicates like every other multi-value field.
+        Assert.Equal("one\ntwo", Set(id, "one\n\ntwo\none"));
+        Assert.Null(Set(id, "\n\n"));
+    }
 
     // ---- Add, and refusal being atomic ---------------------------------------
 

@@ -272,26 +272,51 @@ internal static class CustomAttributeFormat
     /// <summary>
     /// A date is stored as an OLE-automation serial, the same convention as DUEDATE and friends. A
     /// value that's already a number is taken as a serial, so one read back off a task round-trips
-    /// unchanged; anything else has to be one of <see cref="DateFormats"/>.
+    /// unchanged; anything else has to be one of <see cref="DateFormats"/>. Both forms go through the
+    /// same range check, and the check runs on the formatted result as well as the parsed serial:
+    /// rounding to six decimals can take a serial just above zero down to zero, which the reader
+    /// treats as no date at all.
     /// </summary>
     private static string EncodeDate(CustomAttributeDefinition def, string value)
     {
+        const string expected = "a date after 1899-12-30, as yyyy-MM-dd or an OLE serial";
         var text = value.Trim();
-        if (TryParseNumber(text, out var serial))
+        double serial;
+
+        if (TryParseNumber(text, out var fromNumber))
         {
-            if (!IsDateSerial(serial))
-            {
-                throw Invalid(def, value, "a date after 1899-12-30, as yyyy-MM-dd or an OLE serial");
-            }
-            return FormatNumber(serial);
+            serial = fromNumber;
         }
-        if (DateTime.TryParseExact(text, DateFormats, CultureInfo.InvariantCulture,
-                                   DateTimeStyles.None, out var date))
+        else if (DateTime.TryParseExact(text, DateFormats, CultureInfo.InvariantCulture,
+                                        DateTimeStyles.None, out var date))
         {
-            return FormatNumber(date.ToOADate());
+            // ToOADate throws below year 100, so a date like 0099-12-31 would otherwise escape as an
+            // OverflowException instead of this field's own error.
+            try
+            {
+                serial = date.ToOADate();
+            }
+            catch (OverflowException)
+            {
+                throw Invalid(def, value, expected);
+            }
+        }
+        else
+        {
+            throw Invalid(def, value, "a date as yyyy-MM-dd or yyyy-MM-ddTHH:mm");
         }
 
-        throw Invalid(def, value, "a date as yyyy-MM-dd or yyyy-MM-ddTHH:mm");
+        if (!IsDateSerial(serial))
+        {
+            throw Invalid(def, value, expected);
+        }
+
+        var formatted = FormatNumber(serial);
+        if (!IsDateSerial(double.Parse(formatted, NumberStyles.Float, CultureInfo.InvariantCulture)))
+        {
+            throw Invalid(def, value, expected);
+        }
+        return formatted;
     }
 
     /// <summary>
@@ -422,12 +447,11 @@ internal static class CustomAttributeFormat
     }
 
     /// <summary>
-    /// Checks a selection against a fixed list's declared values and returns it in the definition's own
-    /// casing, so what's stored matches an item exactly. Only a fixed list has a closed set — an auto
-    /// list accumulates whatever gets typed into it — and a fixed list that declares no values yet is
-    /// left alone rather than rejecting everything. A multi-select selection is checked item by item,
-    /// duplicates collapse as they do for categories and assignees, and one that selects nothing at
-    /// all clears the field rather than storing an empty value.
+    /// Encodes a list field's selection. A multi-select is always normalised — split on newlines,
+    /// empties dropped, duplicates collapsed as they are for categories and assignees, and the field
+    /// cleared when nothing is left — whether or not its items can be checked. Membership is checked
+    /// only against a fixed list that declares values: an auto list accumulates whatever gets typed
+    /// into it, and a fixed list with nothing declared yet would otherwise reject everything.
     /// </summary>
     private static string? EncodeListSelection(CustomAttributeDefinition def, string value)
     {
@@ -442,35 +466,47 @@ internal static class CustomAttributeFormat
                 nameof(value));
         }
 
-        if (def.ListType is not (CustomFieldListType.Fixed or CustomFieldListType.FixedMulti)
-            || def.ListItems.Count == 0)
+        var checkMembership =
+            def.ListType is CustomFieldListType.Fixed or CustomFieldListType.FixedMulti
+            && def.ListItems.Count > 0;
+
+        if (!def.IsMultiValued)
         {
-            return value;
+            return checkMembership ? ResolveListItem(def, value) : value;
         }
 
-        var items = def.IsMultiValued
-            ? value.Split(ItemSep).Where(i => i.Length > 0).ToArray()
-            : new[] { value };
-
-        var resolved = new List<string>(items.Length);
-        foreach (var item in items)
+        var items = value.Split(ItemSep).Where(i => i.Length > 0);
+        if (checkMembership)
         {
-            var match = def.ListItems.FirstOrDefault(
-                i => string.Equals(i, item.Trim(), StringComparison.OrdinalIgnoreCase));
-            if (match is null)
-            {
-                throw new ArgumentException(
-                    $"'{item.Trim()}' is not one of the values custom field '{def.Id}' allows "
-                    + $"({string.Join(", ", def.ListItems)}).",
-                    nameof(value));
-            }
-            resolved.Add(match);
+            items = items.Select(i => ResolveListItem(def, i));
         }
 
-        // Resolving to the definition's casing first turns a case-only duplicate into an exact one,
-        // so this collapses the same cases SetMulti does for CATEGORY and ALLOCATEDTO.
-        var unique = resolved.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var unique = items.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         return unique.Count == 0 ? null : string.Join(ItemSep, unique);
+    }
+
+    /// <summary>
+    /// Resolves one selection to the declared item it names, returned in the definition's own casing
+    /// and spacing so what's stored matches an item exactly. An exact match wins first, because
+    /// LISTDATA preserves whitespace and a declared item can carry its own — the string
+    /// <c>get_custom_fields</c> hands back must always be settable. Failing that, both sides are
+    /// trimmed, so the obvious spelling of a padded item still selects it.
+    /// </summary>
+    private static string ResolveListItem(CustomAttributeDefinition def, string item)
+    {
+        var match =
+            def.ListItems.FirstOrDefault(i => string.Equals(i, item, StringComparison.OrdinalIgnoreCase))
+            ?? def.ListItems.FirstOrDefault(
+                i => string.Equals(i.Trim(), item.Trim(), StringComparison.OrdinalIgnoreCase));
+
+        if (match is null)
+        {
+            throw new ArgumentException(
+                $"'{item.Trim()}' is not one of the values custom field '{def.Id}' allows "
+                + $"({string.Join(", ", def.ListItems)}).",
+                nameof(item));
+        }
+        return match;
     }
 
     /// <summary>
