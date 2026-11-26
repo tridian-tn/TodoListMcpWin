@@ -66,9 +66,19 @@ public sealed class CustomAttributeDefinition
     /// <summary>
     /// The list's values: the fixed set of allowed values for a fixed list, or the seed/auto-collected
     /// values for an auto list. Empty for a non-list field. (ToDoList's LISTDATA "default" items; the
-    /// separate auto-accumulated items are folded in for auto lists.)
+    /// separate auto-accumulated items are folded in for auto lists.) These are the values a task
+    /// actually stores, so they're what you pass to set the field — for an icon list that's the image
+    /// name, with the label alongside in <see cref="ListItemLabels"/>.
     /// </summary>
     public IReadOnlyList<string> ListItems { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// The display label for each entry in <see cref="ListItems"/>, in the same order. Only an icon
+    /// list has these — ToDoList declares its items as <c>image:label</c> while a task stores just the
+    /// image — and an item that declares no label repeats its image here. Empty for every other field,
+    /// whose items are their own labels.
+    /// </summary>
+    public IReadOnlyList<string> ListItemLabels { get; init; } = Array.Empty<string>();
 
     /// <summary>Whether the field is enabled on the list.</summary>
     public bool Enabled { get; init; }

@@ -95,7 +95,11 @@ public static class TimeUnits
     /// </summary>
     public static double FromHours(double hours, TimeUnit unit) => hours / ToHours(1.0, unit);
 
-    /// <summary>Formats a value the way ToDoList writes time amounts (plain decimal, 8 places).</summary>
+    /// <summary>
+    /// Formats a value the way ToDoList writes time amounts (plain decimal, 8 places). Custom-field
+    /// values are the exception: ToDoList writes those through a different code path that uses six
+    /// places, so they have their own formatter in <c>CustomAttributeFormat</c>.
+    /// </summary>
     public static string Format(double value) =>
         value.ToString("0.00000000", CultureInfo.InvariantCulture);
 }

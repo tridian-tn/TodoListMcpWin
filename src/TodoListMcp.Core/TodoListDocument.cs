@@ -455,12 +455,12 @@ public sealed class TodoListDocument
             ? FindTaskElement(pid) ?? throw new TaskNotFoundException(pid)
             : _root;
 
-        // Validate custom-field assignments before allocating an ID or building anything, so a rejected
-        // field makes the whole add a no-op (no burned ID, document untouched). Empty values are
-        // dropped — they have nothing to set on a new task.
-        var customToSet = req.CustomFields.Where(f => !string.IsNullOrEmpty(f.Value)).ToList();
-        var customDefs = customToSet.Count == 0 ? null : CustomAttributeFormat.DefinitionMap(_root);
-        foreach (var f in customToSet) CustomAttributeFormat.ValidateSettable(f.Id, customDefs!);
+        // Check and encode custom-field assignments before allocating an ID or building anything, so a
+        // rejected field makes the whole add a no-op (no burned ID, document untouched). Empty values
+        // go through the same check rather than being filtered out first: they have nothing to clear
+        // on a new task, but an unknown or calculation field ID has to be refused here exactly as it
+        // would be on an update.
+        var customToSet = PrepareCustomFields(req.CustomFields);
 
         var now = _clock.Now;
         var e = new XElement("TASK",
@@ -488,7 +488,7 @@ public sealed class TodoListDocument
         SetMulti(e, "ALLOCATEDTO", "PERSON", req.AllocatedTo);
         SetMulti(e, "FILEREFPATH", "FILEREFPATH", req.FileLinks, trim: false);
         if (req.AllocatedBy is not null) SetAllocatedBy(e, req.AllocatedBy);
-        foreach (var f in customToSet) CustomAttributeFormat.SetValue(e, f.Id, f.Value, customDefs!);
+        foreach (var f in customToSet) CustomAttributeFormat.Apply(e, f);
         Touch(e, now);
 
         var siblings = parent.Elements("TASK").ToList();
@@ -514,9 +514,9 @@ public sealed class TodoListDocument
             throw new FormattedCommentsException(
                 id, string.IsNullOrEmpty(fmt) || fmt == CommentFormat.PlainText ? "formatted" : fmt);
         }
-        // Validate custom-field assignments up front too, so a rejected field (unknown/calculation)
-        // leaves the document untouched rather than half-applied.
-        var customDefs = ValidateCustomFields(req.CustomFields);
+        // Check custom-field assignments up front too, so a rejected field (unknown, a calculation, or
+        // a value that doesn't fit its type) leaves the document untouched rather than half-applied.
+        var customToSet = PrepareCustomFields(req.CustomFields);
         var now = _clock.Now;
 
         if (req.Title is not null) e.SetAttributeValue("TITLE", req.Title);
@@ -561,9 +561,7 @@ public sealed class TodoListDocument
         if (req.Categories is not null) SetMulti(e, "CATEGORY", "CATEGORY", req.Categories);
         if (req.AllocatedTo is not null) SetMulti(e, "ALLOCATEDTO", "PERSON", req.AllocatedTo);
         if (req.FileLinks is not null) SetMulti(e, "FILEREFPATH", "FILEREFPATH", req.FileLinks, trim: false);
-        if (req.CustomFields is not null)
-            foreach (var f in req.CustomFields)
-                CustomAttributeFormat.SetValue(e, f.Id, f.Value, customDefs!);
+        foreach (var f in customToSet) CustomAttributeFormat.Apply(e, f);
 
         Touch(e, now);
         TouchRoot(now);
@@ -980,18 +978,20 @@ public sealed class TodoListDocument
         e.SetAttributeValue("ALLOCATEDBY", TrimToNull(allocatedBy));
 
     /// <summary>
-    /// Validates a set of custom-field assignments without mutating anything, returning the list's
-    /// definition map for reuse (null when there are no assignments). Throws on the first field that
-    /// is undefined on the list or is a calculation, so <see cref="UpdateTask"/> can bail out before
-    /// touching the document.
+    /// Checks a set of custom-field assignments and encodes each value for its field's type, without
+    /// mutating anything. Throws on the first field that is undefined on the list, is a calculation,
+    /// or carries a value that doesn't fit its type, so <see cref="AddTask"/> and
+    /// <see cref="UpdateTask"/> can bail out before touching the document.
     /// </summary>
-    private IReadOnlyDictionary<string, CustomAttributeDefinition>? ValidateCustomFields(
+    private IReadOnlyList<CustomAttributeFormat.PreparedCustomField> PrepareCustomFields(
         IReadOnlyList<CustomFieldSet>? fields)
     {
-        if (fields is null || fields.Count == 0) return null;
+        if (fields is null || fields.Count == 0)
+        {
+            return Array.Empty<CustomAttributeFormat.PreparedCustomField>();
+        }
         var defs = CustomAttributeFormat.DefinitionMap(_root);
-        foreach (var f in fields) CustomAttributeFormat.ValidateSettable(f.Id, defs);
-        return defs;
+        return fields.Select(f => CustomAttributeFormat.Prepare(f.Id, f.Value, defs)).ToList();
     }
 
     private static void SetFlag(XElement e, bool flag) =>
