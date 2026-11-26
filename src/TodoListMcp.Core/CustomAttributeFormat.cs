@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Xml.Linq;
 using TodoListMcp.Core.Model;
 
@@ -7,7 +8,8 @@ namespace TodoListMcp.Core;
 /// Reads and writes ToDoList custom attributes: the list-level <c>&lt;CUSTOMATTRIBDEF&gt;</c>
 /// definitions and the per-task <c>&lt;CUSTOMATTRIB&gt;</c> values.
 ///
-/// Format facts (verified against AbstractSpoon ToDoList 9.2, <c>IEnums.h</c> / <c>TaskFile.cpp</c>):
+/// Format facts (verified against AbstractSpoon ToDoList 9.2, <c>IEnums.h</c> / <c>TaskFile.cpp</c> /
+/// <c>TDCCustomAttribData.cpp</c>):
 ///  - A definition is a <c>&lt;CUSTOMATTRIBDEF&gt;</c> element under the tasklist root with attributes
 ///    ID, LABEL, COLTITLE, TYPE, COLALIGN, FEATURES, ENABLED and (for list types) LISTDATA.
 ///  - TYPE packs a data type in its low byte (<c>0x00ff</c>) and a list type in its high byte
@@ -16,11 +18,31 @@ namespace TodoListMcp.Core;
 ///    auto-collected items joined by '\n'.
 ///  - A task value is a <c>&lt;CUSTOMATTRIB ID VALUE VALUEDISPLAY&gt;</c> child; multi-select values
 ///    newline-join their items in VALUE. VALUEDISPLAY is a derived mirror ToDoList recomputes on load.
+///  - VALUE holds whatever string the <c>TDCCADATA</c> struct would carry (ToDoList writes it
+///    verbatim), so each data type has its own encoding — see <see cref="Encode"/>.
 /// </summary>
 internal static class CustomAttributeFormat
 {
     private const int DataMask = 0x00ff;
     private const int ListMask = 0xff00;
+
+    /// <summary>
+    /// How ToDoList formats a number inside a custom value: C's <c>"%lf"</c>, so six decimal places.
+    /// Deliberately not the eight places the task date attributes use — those go through a different
+    /// code path (<c>CTaskFile</c>'s own date writer rather than <c>TDCCADATA::Set</c>).
+    /// </summary>
+    private const string NumberFormat = "0.000000";
+
+    /// <summary>
+    /// The date forms accepted for a date field. A closed set on purpose: a locale-ambiguous value
+    /// like 12/01/2026 would silently mean two different days depending on who read it.
+    /// </summary>
+    private static readonly string[] DateFormats =
+    {
+        "yyyy-MM-dd",
+        "yyyy-MM-ddTHH:mm", "yyyy-MM-ddTHH:mm:ss", "yyyy-MM-ddTHH:mm:ss.FFFFFFF",
+        "yyyy-MM-dd HH:mm", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm:ss.FFFFFFF",
+    };
 
     // Task value element/attribute names.
     private const string ValueElement = "CUSTOMATTRIB";
@@ -157,22 +179,42 @@ internal static class CustomAttributeFormat
     }
 
     /// <summary>
-    /// Sets (or clears) a task's value for one custom field. A null/empty <paramref name="value"/>
-    /// removes the field's element(s). An existing element is updated in place — its position and any
-    /// attributes this server doesn't own are preserved — with only the derived mirrors
-    /// (VALUEDISPLAY/CALC/CALCDISPLAY) dropped so ToDoList recomputes them and never shows a stale
-    /// value; a new element is created only when the task has none. This mirrors ToDoList's own
-    /// <c>SetTaskCustomAttributeData</c> (get-or-add the element, then overwrite VALUE). Throws when
-    /// the field has no definition on the list, or when it is a calculation field (derived by ToDoList).
+    /// A custom-field assignment that has been checked and encoded: <see cref="Id"/> is the resolved
+    /// (upper-cased) field key and <see cref="Value"/> the exact string to store, or null to clear the
+    /// field.
     /// </summary>
-    public static void SetValue(
-        XElement task, string id, string? value,
-        IReadOnlyDictionary<string, CustomAttributeDefinition> defs)
+    public readonly record struct PreparedCustomField(string Id, string? Value);
+
+    /// <summary>
+    /// Checks one assignment and encodes its value the way ToDoList stores that field's type, so a
+    /// caller can pass a natural value — a date as <c>2026-12-01</c>, a time period as <c>3h</c>, a
+    /// bool as <c>true</c> — instead of the on-disk encoding. An empty or null
+    /// <paramref name="value"/> prepares a clear. Throws an <see cref="ArgumentException"/> when the
+    /// field is undefined on the list, is a calculation, or carries a value that doesn't fit its type.
+    /// Separating this from <see cref="Apply"/> is what lets a whole request be checked before any of
+    /// it is written, so a rejected field can't leave a half-applied update.
+    /// </summary>
+    public static PreparedCustomField Prepare(
+        string id, string? value, IReadOnlyDictionary<string, CustomAttributeDefinition> defs)
     {
         var key = ValidateSettable(id, defs);
-        var existing = ExistingValueElements(task, key);
+        return new PreparedCustomField(
+            key, string.IsNullOrEmpty(value) ? null : Encode(defs[key], value));
+    }
 
-        if (string.IsNullOrEmpty(value))
+    /// <summary>
+    /// Writes a prepared assignment onto a task. A null value removes the field's element(s). An
+    /// existing element is updated in place — its position and any attributes this server doesn't own
+    /// are preserved — with only the derived mirrors (VALUEDISPLAY/CALC/CALCDISPLAY) dropped so
+    /// ToDoList recomputes them and never shows a stale value; a new element is created only when the
+    /// task has none. This mirrors ToDoList's own <c>SetTaskCustomAttributeData</c> (get-or-add the
+    /// element, then overwrite VALUE).
+    /// </summary>
+    public static void Apply(XElement task, PreparedCustomField field)
+    {
+        var existing = ExistingValueElements(task, field.Id);
+
+        if (field.Value is null)
         {
             foreach (var e in existing) e.Remove();
             return;
@@ -184,23 +226,215 @@ internal static class CustomAttributeFormat
             // collapse any duplicates, matching ToDoList's one-element-per-field invariant.
             var e = existing[0];
             for (var i = 1; i < existing.Count; i++) existing[i].Remove();
-            e.SetAttributeValue(ValueAttr, value);
+            e.SetAttributeValue(ValueAttr, field.Value);
             foreach (var derived in DerivedAttrs) e.SetAttributeValue(derived, null);
             return;
         }
 
         task.Add(new XElement(ValueElement,
-            new XAttribute(IdAttr, key),
-            new XAttribute(ValueAttr, value)));
+            new XAttribute(IdAttr, field.Id),
+            new XAttribute(ValueAttr, field.Value)));
     }
 
     /// <summary>
-    /// Validates that a custom field can be set — the ID is non-empty, the field is defined on the
-    /// list, and it is not a calculation — throwing an <see cref="ArgumentException"/> otherwise.
-    /// Returns the resolved (upper-cased) key. Used to check every assignment up front so a rejected
-    /// field can't leave a half-applied update.
+    /// Encodes a caller's value into the string ToDoList stores for that field's type (each case
+    /// verified against the matching <c>TDCCADATA</c> accessor in 9.2). String, icon and file-link
+    /// fields are stored as given, and so is any data type a newer ToDoList introduces — an unknown
+    /// type falls back to verbatim rather than erroring, so a field this server has never heard of
+    /// still works.
     /// </summary>
-    public static string ValidateSettable(string id, IReadOnlyDictionary<string, CustomAttributeDefinition> defs)
+    private static string? Encode(CustomAttributeDefinition def, string value)
+    {
+        // A list field's values are its own declared items — strings whatever the data byte says — so
+        // they're stored as given, with a fixed list's membership checked.
+        if (def.IsList) return EncodeListSelection(def, value);
+
+        return def.DataType switch
+        {
+            CustomFieldDataType.Date => EncodeDate(def, value),
+            CustomFieldDataType.TimePeriod => EncodeTimePeriod(def, value),
+            CustomFieldDataType.Bool => EncodeBool(def, value),
+            CustomFieldDataType.Integer => EncodeInteger(def, value),
+            CustomFieldDataType.Double => EncodeDouble(def, value),
+            CustomFieldDataType.Fraction => EncodeFraction(def, value),
+            _ => value,
+        };
+    }
+
+    /// <summary>
+    /// A date is stored as an OLE-automation serial, the same convention as DUEDATE and friends. A
+    /// value that's already a number is taken as a serial, so one read back off a task round-trips
+    /// unchanged; anything else has to be one of <see cref="DateFormats"/>.
+    /// </summary>
+    private static string EncodeDate(CustomAttributeDefinition def, string value)
+    {
+        var text = value.Trim();
+        if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var serial))
+        {
+            if (!IsDateSerial(serial))
+                throw Invalid(def, value, "a date after 1899-12-30, as yyyy-MM-dd or an OLE serial");
+            return FormatNumber(serial);
+        }
+        if (DateTime.TryParseExact(text, DateFormats, CultureInfo.InvariantCulture,
+                                   DateTimeStyles.None, out var date))
+            return FormatNumber(date.ToOADate());
+
+        throw Invalid(def, value, "a date as yyyy-MM-dd or yyyy-MM-ddTHH:mm");
+    }
+
+    /// <summary>
+    /// Whether a serial is a date that can be read back: positive (the reader treats a non-positive
+    /// serial as no date at all) and inside the OLE range, so a number far outside it is refused
+    /// rather than written for ToDoList to choke on.
+    /// </summary>
+    private static bool IsDateSerial(double serial)
+    {
+        if (serial <= 0) return false;
+        try
+        {
+            DateTime.FromOADate(serial);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// A time period is stored as the amount, a colon, then the unit letter. The letter has to come
+    /// last because ToDoList reads the unit off the end of the string. The unit can be given as a
+    /// letter or a word ("3h", "90 mins", "2.5:D"); a bare number is taken as hours, which is
+    /// ToDoList's own default when no unit is stored.
+    /// </summary>
+    private static string EncodeTimePeriod(CustomAttributeDefinition def, string value)
+    {
+        var text = value.Trim();
+        string amountText, unitText;
+
+        var colon = text.LastIndexOf(':');
+        if (colon >= 0)
+        {
+            amountText = text[..colon];
+            unitText = text[(colon + 1)..];
+        }
+        else
+        {
+            // Everything up to the first letter is the amount; the rest names the unit.
+            var split = 0;
+            while (split < text.Length && !char.IsLetter(text[split])) split++;
+            amountText = text[..split];
+            unitText = text[split..];
+        }
+
+        if (!double.TryParse(amountText.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var amount))
+            throw Invalid(def, value, "a time period, e.g. 3h, 90 mins or 2.5:D");
+
+        var unit = TimeUnit.Hours;
+        if (unitText.Trim().Length > 0 && !TimeUnits.TryParse(unitText, out unit))
+            throw Invalid(def, value, "a time period whose unit is I/H/D/K/W/M/Y or a word like hours");
+
+        return $"{FormatNumber(amount)}:{TimeUnits.ToFileCode(unit)}";
+    }
+
+    /// <summary>
+    /// ToDoList stores true as a single "+" and false as no value at all — its reader takes any
+    /// non-empty value as true — so false clears the field, which reads back as false either way.
+    /// </summary>
+    private static string? EncodeBool(CustomAttributeDefinition def, string value) =>
+        value.Trim().ToLowerInvariant() switch
+        {
+            "true" or "yes" or "y" or "1" or "+" or "on" => "+",
+            "false" or "no" or "n" or "0" or "off" => null,
+            _ => throw Invalid(def, value, "true or false"),
+        };
+
+    /// <summary>An integer is stored with "%d", so it's re-emitted in canonical form.</summary>
+    private static string EncodeInteger(CustomAttributeDefinition def, string value) =>
+        int.TryParse(value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var i)
+            ? i.ToString(CultureInfo.InvariantCulture)
+            : throw Invalid(def, value, "a whole number");
+
+    /// <summary>A decimal is stored with "%lf" — see <see cref="NumberFormat"/>.</summary>
+    private static string EncodeDouble(CustomAttributeDefinition def, string value) =>
+        double.TryParse(value.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var d)
+            ? FormatNumber(d)
+            : throw Invalid(def, value, "a number");
+
+    /// <summary>
+    /// A fraction is stored as the text itself — "3/4" — which ToDoList splits on the slash; one with
+    /// no slash it falls back to reading as a plain number. There's no numeric re-format for this
+    /// type (no <c>TDCCADATA::Set</c> overload takes a fraction), so both forms are kept as given
+    /// once they're checked to be parseable, only losing any spaces around the slash.
+    /// </summary>
+    private static string EncodeFraction(CustomAttributeDefinition def, string value)
+    {
+        var text = value.Trim();
+        var slash = text.IndexOf('/');
+
+        if (slash < 0)
+        {
+            return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out _)
+                ? text
+                : throw Invalid(def, value, "a fraction such as 3/4, or a number");
+        }
+
+        var numerator = text[..slash].Trim();
+        var denominator = text[(slash + 1)..].Trim();
+        if (!double.TryParse(numerator, NumberStyles.Float, CultureInfo.InvariantCulture, out _)
+            || !double.TryParse(denominator, NumberStyles.Float, CultureInfo.InvariantCulture, out var den)
+            || den == 0)
+            throw Invalid(def, value, "a fraction such as 3/4");
+
+        return $"{numerator}/{denominator}";
+    }
+
+    /// <summary>
+    /// Checks a selection against a fixed list's declared values and returns it in the definition's own
+    /// casing, so what's stored matches an item exactly. Only a fixed list has a closed set — an auto
+    /// list accumulates whatever gets typed into it — and a fixed list that declares no values yet is
+    /// left alone rather than rejecting everything. A multi-select selection is checked item by item,
+    /// and one that selects nothing at all clears the field rather than storing an empty value.
+    /// </summary>
+    private static string? EncodeListSelection(CustomAttributeDefinition def, string value)
+    {
+        if (def.ListType is not (CustomFieldListType.Fixed or CustomFieldListType.FixedMulti)
+            || def.ListItems.Count == 0)
+            return value;
+
+        var items = def.IsMultiValued
+            ? value.Split(ItemSep).Where(i => i.Length > 0).ToArray()
+            : new[] { value };
+
+        var resolved = new List<string>(items.Length);
+        foreach (var item in items)
+        {
+            var match = def.ListItems.FirstOrDefault(
+                i => string.Equals(i, item.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (match is null)
+                throw new ArgumentException(
+                    $"'{item.Trim()}' is not one of the values custom field '{def.Id}' allows "
+                    + $"({string.Join(", ", def.ListItems)}).",
+                    nameof(value));
+            resolved.Add(match);
+        }
+        return resolved.Count == 0 ? null : string.Join(ItemSep, resolved);
+    }
+
+    private static string FormatNumber(double value) =>
+        value.ToString(NumberFormat, CultureInfo.InvariantCulture);
+
+    private static ArgumentException Invalid(CustomAttributeDefinition def, string value, string expected) =>
+        new($"'{value}' isn't a valid value for custom field '{def.Id}' (a {def.DataType} field); "
+            + $"expected {expected}.",
+            nameof(value));
+
+    /// <summary>
+    /// Checks that a custom field can be set at all — the ID is non-empty, the field is defined on the
+    /// list, and it is not a calculation — throwing an <see cref="ArgumentException"/> otherwise.
+    /// Returns the resolved (upper-cased) key.
+    /// </summary>
+    private static string ValidateSettable(string id, IReadOnlyDictionary<string, CustomAttributeDefinition> defs)
     {
         if (string.IsNullOrWhiteSpace(id))
             throw new ArgumentException("A custom field ID must not be empty.", nameof(id));

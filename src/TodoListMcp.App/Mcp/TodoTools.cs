@@ -118,7 +118,7 @@ public sealed class TodoTools
         [Description("People to assign the task to.")] string[]? allocatedTo = null,
         [Description("Who allocated the task (single value).")] string? allocatedBy = null,
         [Description("File/URL links to attach (local/network paths, http(s)/mailto URLs, or tdl:// task links). Stored verbatim; blank entries are ignored and exact duplicates are collapsed case-insensitively, as ToDoList does.")] string[]? fileLinks = null,
-        [Description("Custom-field values keyed by field ID (see get_custom_fields), e.g. {\"MR\":\"12345\"}. The field must be defined on the list; calculation fields can't be set. For a multi-select field, join items with newlines.")] Dictionary<string, string>? customFields = null,
+        [Description("Custom-field values keyed by field ID (see get_custom_fields), e.g. {\"MR\":\"12345\"}. Give each value naturally and it's encoded for the field's type: a date as 2026-12-01 or 2026-12-01T14:30, a time period as 3h / 90 mins / 2.5:D, a bool as true or false, an integer or decimal as a number, a fraction as 3/4. A fixed-list field accepts only its declared values. The field must be defined on the list; calculation fields can't be set. For a multi-select field, join items with newlines.")] Dictionary<string, string>? customFields = null,
         [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
         _manager.Write(list, d => d.AddTask(new AddTaskRequest
         {
@@ -178,7 +178,7 @@ public sealed class TodoTools
         [Description("Replace the assignees (empty array clears them).")] string[]? allocatedTo = null,
         [Description("New allocated-by person (empty string clears it).")] string? allocatedBy = null,
         [Description("Replace the file/URL links (empty array clears them). Stored verbatim; blank entries are ignored and exact duplicates are collapsed case-insensitively, as ToDoList does.")] string[]? fileLinks = null,
-        [Description("Set custom-field values keyed by field ID (see get_custom_fields), e.g. {\"MR\":\"12345\"}. An empty value clears that field; other custom fields are left untouched. Calculation fields can't be set. Multi-select items are newline-joined.")] Dictionary<string, string>? customFields = null,
+        [Description("Set custom-field values keyed by field ID (see get_custom_fields), e.g. {\"MR\":\"12345\"}. Give each value naturally and it's encoded for the field's type: a date as 2026-12-01 or 2026-12-01T14:30, a time period as 3h / 90 mins / 2.5:D, a bool as true or false, an integer or decimal as a number, a fraction as 3/4. A fixed-list field accepts only its declared values. An empty value clears that field; other custom fields are left untouched. Calculation fields can't be set. Multi-select items are newline-joined.")] Dictionary<string, string>? customFields = null,
         [Description("Alias of the configured list. Omit to use the default list.")] string? list = null) =>
         _manager.Write(list, d => d.UpdateTask(id, new UpdateTaskRequest
         {

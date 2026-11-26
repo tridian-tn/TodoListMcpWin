@@ -9,7 +9,12 @@ public sealed class CustomFieldSet
 {
     public required string Id { get; init; }
 
-    /// <summary>The value to store; empty/null clears the field. Multi-select items are newline-joined.</summary>
+    /// <summary>
+    /// The value to store, in natural form — it's encoded for the field's declared type, so a date
+    /// goes in as <c>2026-12-01</c> (or with a time), a time period as <c>3h</c>, a bool as
+    /// <c>true</c>/<c>false</c>, a fraction as <c>3/4</c>, and a number as itself. Empty/null clears
+    /// the field; multi-select items are newline-joined.
+    /// </summary>
     public string? Value { get; init; }
 }
 

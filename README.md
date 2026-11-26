@@ -331,8 +331,28 @@ for it (a `<CUSTOMATTRIB>` element).
   on the list (define new fields in the ToDoList app); **calculation** fields are read-only (ToDoList
   derives them). The derived display mirror is dropped on write so ToDoList recomputes it — no stale
   values.
+- **Values are typed on write** — you pass a natural value and the server encodes it the way ToDoList
+  stores that field's type, so you never have to know the on-disk form:
+
+  | Data type | Pass | Stored as |
+  | --- | --- | --- |
+  | `date` | `2026-12-01`, `2026-12-01T14:30` (or an OLE serial, which round-trips unchanged) | an OLE-automation serial, e.g. `46357.000000` |
+  | `timePeriod` | `3h`, `90 mins`, `2.5:D`, or a bare number (hours) | `amount:unit`, e.g. `3.000000:H` |
+  | `bool` | `true`/`false`, `yes`/`no`, `1`/`0` | `+` for true; false **clears** the field (ToDoList reads an absent value as false) |
+  | `integer` | `42` | `42` |
+  | `double` | `3.5` | `3.500000` |
+  | `fraction` | `3/4`, or a plain number | as given, e.g. `3/4` |
+  | `string`, `icon`, `fileLink` | anything | verbatim |
+
+  A value that doesn't fit its field's type is **rejected** with a message naming what was expected,
+  and the whole write is refused before anything changes. A **fixed** list accepts only its declared
+  values (matched case-insensitively, stored in the list's own casing); an **auto** list accepts
+  anything, since it accumulates whatever gets typed into it. A data type a newer ToDoList introduces
+  falls back to verbatim rather than erroring.
 - **Search** — `search_tasks` takes `customFieldId` (match tasks that have the field) and optional
-  `customFieldValue` (equals a value or a selected item, or a case-insensitive substring).
+  `customFieldValue` (equals a value or a selected item, or a case-insensitive substring). Note it
+  matches the **stored** value, so a date, time period or bool field is matched against its on-disk
+  form rather than the natural one you'd pass on write.
 
 Custom fields you don't touch — and the definitions themselves — are preserved verbatim across edits.
 
