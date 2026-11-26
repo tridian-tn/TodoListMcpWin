@@ -269,15 +269,19 @@ internal static class CustomAttributeFormat
     private static string EncodeDate(CustomAttributeDefinition def, string value)
     {
         var text = value.Trim();
-        if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var serial))
+        if (TryParseNumber(text, out var serial))
         {
             if (!IsDateSerial(serial))
+            {
                 throw Invalid(def, value, "a date after 1899-12-30, as yyyy-MM-dd or an OLE serial");
+            }
             return FormatNumber(serial);
         }
         if (DateTime.TryParseExact(text, DateFormats, CultureInfo.InvariantCulture,
                                    DateTimeStyles.None, out var date))
+        {
             return FormatNumber(date.ToOADate());
+        }
 
         throw Invalid(def, value, "a date as yyyy-MM-dd or yyyy-MM-ddTHH:mm");
     }
@@ -305,7 +309,9 @@ internal static class CustomAttributeFormat
     /// A time period is stored as the amount, a colon, then the unit letter. The letter has to come
     /// last because ToDoList reads the unit off the end of the string. The unit can be given as a
     /// letter or a word ("3h", "90 mins", "2.5:D"); a bare number is taken as hours, which is
-    /// ToDoList's own default when no unit is stored.
+    /// ToDoList's own default when no unit is stored. The amount is clamped at zero, the same way
+    /// <c>SetTime</c> clamps the task's own estimate and time spent — ToDoList's UI can't produce a
+    /// negative period.
     /// </summary>
     private static string EncodeTimePeriod(CustomAttributeDefinition def, string value)
     {
@@ -327,14 +333,18 @@ internal static class CustomAttributeFormat
             unitText = text[split..];
         }
 
-        if (!double.TryParse(amountText.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var amount))
+        if (!TryParseNumber(amountText.Trim(), out var amount))
+        {
             throw Invalid(def, value, "a time period, e.g. 3h, 90 mins or 2.5:D");
+        }
 
         var unit = TimeUnit.Hours;
         if (unitText.Trim().Length > 0 && !TimeUnits.TryParse(unitText, out unit))
+        {
             throw Invalid(def, value, "a time period whose unit is I/H/D/K/W/M/Y or a word like hours");
+        }
 
-        return $"{FormatNumber(amount)}:{TimeUnits.ToFileCode(unit)}";
+        return $"{FormatNumber(Math.Max(0, amount))}:{TimeUnits.ToFileCode(unit)}";
     }
 
     /// <summary>
@@ -357,7 +367,7 @@ internal static class CustomAttributeFormat
 
     /// <summary>A decimal is stored with "%lf" — see <see cref="NumberFormat"/>.</summary>
     private static string EncodeDouble(CustomAttributeDefinition def, string value) =>
-        double.TryParse(value.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var d)
+        TryParseNumber(value.Trim(), out var d)
             ? FormatNumber(d)
             : throw Invalid(def, value, "a number");
 
@@ -374,17 +384,17 @@ internal static class CustomAttributeFormat
 
         if (slash < 0)
         {
-            return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out _)
+            return TryParseNumber(text, out _)
                 ? text
                 : throw Invalid(def, value, "a fraction such as 3/4, or a number");
         }
 
         var numerator = text[..slash].Trim();
         var denominator = text[(slash + 1)..].Trim();
-        if (!double.TryParse(numerator, NumberStyles.Float, CultureInfo.InvariantCulture, out _)
-            || !double.TryParse(denominator, NumberStyles.Float, CultureInfo.InvariantCulture, out var den)
-            || den == 0)
+        if (!TryParseNumber(numerator, out _) || !TryParseNumber(denominator, out var den) || den == 0)
+        {
             throw Invalid(def, value, "a fraction such as 3/4");
+        }
 
         return $"{numerator}/{denominator}";
     }
@@ -400,7 +410,9 @@ internal static class CustomAttributeFormat
     {
         if (def.ListType is not (CustomFieldListType.Fixed or CustomFieldListType.FixedMulti)
             || def.ListItems.Count == 0)
+        {
             return value;
+        }
 
         var items = def.IsMultiValued
             ? value.Split(ItemSep).Where(i => i.Length > 0).ToArray()
@@ -412,14 +424,26 @@ internal static class CustomAttributeFormat
             var match = def.ListItems.FirstOrDefault(
                 i => string.Equals(i, item.Trim(), StringComparison.OrdinalIgnoreCase));
             if (match is null)
+            {
                 throw new ArgumentException(
                     $"'{item.Trim()}' is not one of the values custom field '{def.Id}' allows "
                     + $"({string.Join(", ", def.ListItems)}).",
                     nameof(value));
+            }
             resolved.Add(match);
         }
         return resolved.Count == 0 ? null : string.Join(ItemSep, resolved);
     }
+
+    /// <summary>
+    /// Parses a number for a custom value, requiring a finite result. The finite check matters:
+    /// "NaN", "Infinity" and "-Infinity" all parse under <see cref="NumberStyles.Float"/> and would
+    /// then be written as that literal text, which ToDoList's own reader takes as zero — so they're
+    /// refused here rather than stored as a number-shaped field holding words.
+    /// </summary>
+    private static bool TryParseNumber(string text, out double value) =>
+        double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value)
+        && double.IsFinite(value);
 
     private static string FormatNumber(double value) =>
         value.ToString(NumberFormat, CultureInfo.InvariantCulture);

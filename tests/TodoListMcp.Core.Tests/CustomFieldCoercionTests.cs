@@ -65,6 +65,8 @@ public class CustomFieldCoercionTests
     [InlineData("0")]            // a non-positive serial is no date at all, matching the reader
     [InlineData("-5")]
     [InlineData("99999999")]     // past the OLE range: refused rather than stored unreadable
+    [InlineData("NaN")]
+    [InlineData("Infinity")]
     public void A_value_that_isnt_an_iso_date_is_rejected(string given) =>
         Assert.Contains("WHEN", Rejects("WHEN", given).Message);
 
@@ -103,8 +105,16 @@ public class CustomFieldCoercionTests
     [InlineData("3 fortnights")]
     [InlineData("3:Z")]
     [InlineData(":H")]
+    [InlineData("NaN:H")]
+    [InlineData("Infinity:D")]
     public void An_unparseable_time_period_is_rejected(string given) =>
         Assert.Contains("EFFORT", Rejects("EFFORT", given).Message);
+
+    [Fact]
+    public void A_negative_time_period_is_clamped_to_zero() =>
+        // SetTime clamps the task's own estimate and time spent the same way, and ToDoList's UI
+        // can't produce a negative period at all.
+        Assert.Equal("0.000000:H", Set("EFFORT", "-3h"));
 
     // ---- Bool ----------------------------------------------------------------
 
@@ -169,6 +179,11 @@ public class CustomFieldCoercionTests
     [Theory]
     [InlineData("lots")]
     [InlineData("1/2")]
+    // These three parse as doubles but aren't finite, so formatting them would store the literal
+    // text "NaN"/"Infinity" in a numeric field — which ToDoList's reader takes as zero.
+    [InlineData("NaN")]
+    [InlineData("Infinity")]
+    [InlineData("-Infinity")]
     public void A_non_numeric_double_is_rejected(string given) =>
         Assert.Contains("RATIO", Rejects("RATIO", given).Message);
 
@@ -185,6 +200,9 @@ public class CustomFieldCoercionTests
     [InlineData("/4")]
     [InlineData("3/")]
     [InlineData("half")]
+    [InlineData("NaN")]
+    [InlineData("NaN/2")]
+    [InlineData("3/Infinity")]
     public void An_unparseable_fraction_is_rejected(string given) =>
         Assert.Contains("FRAC", Rejects("FRAC", given).Message);
 

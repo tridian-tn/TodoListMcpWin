@@ -986,7 +986,9 @@ public sealed class TodoListDocument
         IReadOnlyList<CustomFieldSet>? fields)
     {
         if (fields is null || fields.Count == 0)
+        {
             return Array.Empty<CustomAttributeFormat.PreparedCustomField>();
+        }
         var defs = CustomAttributeFormat.DefinitionMap(_root);
         return fields.Select(f => CustomAttributeFormat.Prepare(f.Id, f.Value, defs)).ToList();
     }
